@@ -1,17 +1,41 @@
+ifeq ($(OS),Windows_NT)
+    OS_NAME := windows
+else
+    OS_NAME := $(shell uname -s | tr '[:upper:]' '[:lower:]')
+endif
+
+#default linux
+CC := gcc
+CFLAGS := -std=c11 -Wall -Wextra -g -Iinclude
+LDFLAGS := -Llib -lraylib -lm -lpthread -ldl
+
+ifeq ($(OS_NAME),darwin)
+	#macOS
+	CC := clang
+	LDFLAGS := -Llib -lraylib -framework CoreVideo -framework IOKit -framework Cocoa -framework GLUT -framework OpenGL
+endif
+
+.PHONY: all clean
+
+all: server client
+
 server: server.o
-	gcc -o server server.o
+	$(CC) $(CFLAGS) $^ -o $@
+
+server.o: server.c
+	$(CC) $(CFLAGS) -c $< -o $@
 
 client: client.o data.o resources.o
-	gcc $^ -Llib -lraylib -lGL -lm -lpthread -ldl -lX11 -o client
+	$(CC) $^ $(LDFLAGS) -o $@
 
 client.o: client.c data.h resources.h
-	gcc -g -c client.c -Iinclude -o client.o
+	$(CC) $(CFLAGS) -c $< -o $@
 
 resources.o: resources.c data.h
-	gcc -c resources.c -Iinclude -o resources.o
+	$(CC) $(CFLAGS) -c $< -o $@
 
 data.o: data.c
-	gcc -c data.c -Iinclude -o data.o
+	$(CC) $(CFLAGS) -c $< -o $@
 	
 clean:
 	rm -f *.o server client
