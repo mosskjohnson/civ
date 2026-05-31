@@ -5,11 +5,24 @@
 #include <string.h>
 
 #define MAX_ENTITIES 1024
-#define TILEMAP_X 16
-#define TILEMAP_Y 16
+#define TILEMAP_W 160
+#define TILEMAP_H 120
 #define CONNECTIONS_PERMUTATIONS 16
 
 typedef int playerID;
+
+typedef enum {
+    D_N  = 0,
+    D_NE = 1,
+    D_E  = 2,
+    D_SE = 3,
+    D_S  = 4,
+    D_SW = 5,
+    D_W  = 6,
+    D_NW = 7,
+} Direction;
+
+Direction direction_opposite(Direction d);
 
 typedef struct {
     int id;
@@ -119,6 +132,7 @@ typedef enum { // DO NOT CHANGE ORDER!
     T_SWAMP,
     T_JUNGLE,
     T_OCEAN,
+    T_RIVER,
     T_COUNT,
 } TileType;
 

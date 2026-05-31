@@ -3,6 +3,10 @@
 
 #include "data.h"
 
+Direction direction_opposite(Direction d) {
+    return (d+4)%8;
+}
+
 UnitTypeInfo unit_type_info[U_COUNT] = { // DO NOT CHANGE ORDER!
     [U_SETTLER]    = {"settler",    U_LAND | U_SETTLES,   0,  1,  1, 0},
     [U_MILITIA]    = {"militia",    U_LAND,               1,  1,  1, 0},
@@ -67,12 +71,13 @@ TileTypeInfo tile_type_info[T_COUNT] = {
     {"swamp", T_LAND, 2, 1.5},
     {"jungle", T_LAND, 2, 1.5},
     {"ocean", T_WATER, 1, 1.0},
+    {"river", T_LAND, 1, 1.5},
 };
 
 Tile* alloc_tiles(void) {
-    return calloc(TILEMAP_X*TILEMAP_Y, sizeof(Tile));
+    return calloc(TILEMAP_W*TILEMAP_H, sizeof(Tile));
 }
 
 Fog* alloc_fog(void) {
-    return calloc(TILEMAP_X*TILEMAP_Y, sizeof(Fog));
+    return calloc(TILEMAP_W*TILEMAP_H, sizeof(Fog));
 }
