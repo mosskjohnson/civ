@@ -12,6 +12,7 @@ LDFLAGS := -Llib -lraylib -lm -lpthread -ldl -lGL -lX11
 ifeq ($(OS_NAME),darwin)
 	#macOS
 	CC := clang
+	CFLAGS := -std=c11 -Wall -Wextra -g -Iinclude
 	LDFLAGS := -Llib -lraylib -framework CoreVideo -framework IOKit -framework Cocoa -framework GLUT -framework OpenGL
 endif
 
@@ -39,7 +40,7 @@ data.o: data.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 worldgendisplayer.o: worldgendisplayer.c worldgen.h data.h
-	$(CC) -c $< -o $@
+	$(CC) $(CFLAGS) -c $< -o $@
 
 worldgen.o: worldgen.c data.h
 	$(CC) $(CFLAGS) -c $< -o $@
