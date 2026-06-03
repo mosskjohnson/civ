@@ -483,7 +483,6 @@ static void handle_playing(ClientState* state, TextureManager* tm) {
 }
 
 int main(void) {
-    printf("sizeof(MsgHeader)=%zu sizeof(SM_Welcome)=%zu\n", sizeof(MsgHeader), sizeof(SM_Welcome));
     ClientState state = {0};
     state.mode = LOBBY;
 
