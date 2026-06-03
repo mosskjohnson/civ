@@ -85,54 +85,13 @@ static void handle_networking(ClientState* state) {
     }
     printf("CLIENT: Connected to server %s:%d\n", SERVER_IP, PORT);
 
-    int flags = fcntl(sock_fd, F_GETFL, 0);
-    fcntl(sock_fd, F_SETFL, flags | O_NONBLOCK);
+    //int flags = fcntl(sock_fd, F_GETFL, 0);
+    //fcntl(sock_fd, F_SETFL, flags | O_NONBLOCK);
 
     state->poll_fd[0].fd = sock_fd;
     state->poll_fd[0].events = POLLIN;
     
     state->server_addr = server_addr;
-}
-
-static void handle_lobby(ClientState* state, TextureManager* tm) {
-    (void)tm;
-    // receive
-    int fd = state->poll_fd[0].fd;
-    if (state->poll_fd[0].revents & POLLIN) {
-        MsgHeader header;
-        void* body;
-        int r = recv_alloc_msg(fd, &header, &body);
-        if (r == 0) {
-           switch (header.type) {
-                case SM_WELCOME: {
-                    SM_Welcome* msgs = (SM_Welcome*)body;
-                    state->my_player_id = msgs[0].player_id;
-                    state->num_players_now = msgs[0].num_players_now;
-                    state->max_players = msgs[0].max_players;
-                    break;
-                }
-                case SM_PLAYER_JOINED_LOBBY: {
-                    SM_PlayerJoinedLobby* msgs = (SM_PlayerJoinedLobby*)body;
-                    state->num_players_now = msgs[0].num_players_now;
-                    state->max_players = msgs[0].max_players;
-                    break;
-                }
-                case SM_GAME_STARTING:
-                    state->mode = INIT;
-                    break;
-                default:
-                    break;
-            }
-            free(body);
-        }
-     }
-    // input
-    // send
-    // rendering
-    BeginDrawing();
-    ClearBackground(WHITE);
-    DrawText("Waiting for server to start game.", 0, 0, 20, BLACK);
-    EndDrawing();
 }
 
 static void init_tiles_canvas(ClientState* state, TextureManager* tm) {
@@ -216,14 +175,30 @@ static void init_fog_canvas(ClientState* state, TextureManager* tm) {
     EndTextureMode();
 }
 
-static void handle_init(ClientState* state, TextureManager* tm) {
-    if (state->poll_fd[0].revents & POLLIN) {
-        int fd = state->poll_fd[0].fd;
+static void handle_lobby(ClientState* state, TextureManager* tm) {
+    (void)tm;
+    // receive
+    int fd = state->poll_fd[0].fd;
+    while (1) {
+        int r = poll(state->poll_fd, 1, 0);
+        if (r <= 0 || !(state->poll_fd[0].revents & POLLIN)) break;
         MsgHeader header;
         void* body;
-        int r = recv_alloc_msg(fd, &header, &body);
-        if (r == 0) {
-            switch (header.type) {
+        if (recv_alloc_msg(fd, &header, &body) == 0) {
+           switch (header.type) {
+                case SM_WELCOME: {
+                    SM_Welcome* msgs = (SM_Welcome*)body;
+                    state->my_player_id = msgs[0].player_id;
+                    state->num_players_now = msgs[0].num_players_now;
+                    state->max_players = msgs[0].max_players;
+                    break;
+                }
+                case SM_PLAYER_JOINED_LOBBY: {
+                    SM_PlayerJoinedLobby* msgs = (SM_PlayerJoinedLobby*)body;
+                    state->num_players_now = msgs[0].num_players_now;
+                    state->max_players = msgs[0].max_players;
+                    break;
+                }
                 case SM_INIT_MAPSIZE:
                     state->size = *(MapSize*)body;
                     state->got_mapsize = 1;
@@ -240,11 +215,14 @@ static void handle_init(ClientState* state, TextureManager* tm) {
                 case SM_INIT_GENS:
                     state->gens = (int*)body;
                     state->got_gens = 1;
-                    printf("got gens\n");
                     break;
                 case SM_INIT_FOG:
                     state->fog = (Fog*)body;
                     state->got_fog = 1;
+                    break;
+                case SM_GAME_STARTING:
+                    state->mode = INIT;
+                    free(body);
                     break;
                 default:
                     free(body);
@@ -261,12 +239,22 @@ static void handle_init(ClientState* state, TextureManager* tm) {
             state->mode = PLAYING;
             return;
         }
+     }
+    // input
+    // send
+    // rendering
+    if (state->mode == LOBBY) {
+        BeginDrawing();
+        ClearBackground(WHITE);
+        DrawText("Waiting for server to start game.", 0, 0, 20, BLACK);
+        EndDrawing();
+    } else if (state->mode == INIT) {
+        BeginDrawing();
+        ClearBackground(WHITE);
+        DrawText("Loading...", 0, 0, 20, BLACK);
+        EndDrawing();
     }
-    // render
-    BeginDrawing();
-    ClearBackground(WHITE);
-    DrawText("Loading...", 0, 0, 20, BLACK);
-    EndDrawing();
+    
 }
 
 static void update_tiles_canvas(const ClientState* state, SM_UpdateTile* updates, int count, TextureManager* tm) {
@@ -362,7 +350,6 @@ static void update_entities(ClientState* state, SM_UpdateEntity* updates, int co
 static void update_fog(ClientState* state, SM_UpdateFog* updates, int count) {
     for (int i = 0; i < count; ++i) {
         SM_UpdateFog update = updates[i];
-        printf("fog update: %d,%d -> %d\n", update.x, update.y, update.updated);
         *fog_at(state->fog, state->size, update.x, update.y) = update.updated;
     }
 }
@@ -373,13 +360,13 @@ static void handle_playing(ClientState* state, TextureManager* tm) {
     SM_UpdateEntity* entity_updates = malloc(MAX_ENTITIES * sizeof(SM_UpdateEntity));
     SM_UpdateFog* fog_updates = malloc(state->size.width * state->size.height * sizeof(SM_UpdateFog));
     int tile_updates_count = 0, entity_updates_count = 0, fog_updates_count = 0;
-    while (state->poll_fd[0].revents & POLLIN) {
+    while (1) {
+        int r = poll(state->poll_fd, 1, 0);
+        if (r <= 0 || !(state->poll_fd[0].revents & POLLIN)) break;
         int fd = state->poll_fd[0].fd;
         MsgHeader header;
         void* body;
-        int r = recv_alloc_msg(fd, &header, &body);
-        if (r == -2) break;
-        if (r == -1) {
+        if (recv_alloc_msg(fd, &header, &body) < 0) {
             printf("Server disconnected\n");
             state->mode = END;
             break;
@@ -496,6 +483,7 @@ static void handle_playing(ClientState* state, TextureManager* tm) {
 }
 
 int main(void) {
+    printf("sizeof(MsgHeader)=%zu sizeof(SM_Welcome)=%zu\n", sizeof(MsgHeader), sizeof(SM_Welcome));
     ClientState state = {0};
     state.mode = LOBBY;
 
@@ -514,10 +502,8 @@ int main(void) {
     
     SetTargetFPS(60);
     while (!WindowShouldClose()) {
-        poll(state.poll_fd, 1, 0);
         switch (state.mode) {
-            case LOBBY:   handle_lobby(&state, &tm);   break;
-            case INIT:    handle_init(&state, &tm);    break; 
+            case LOBBY: case INIT: handle_lobby(&state, &tm); break;
             case PLAYING: handle_playing(&state, &tm); break;
             case END: goto cleanup;
         }        

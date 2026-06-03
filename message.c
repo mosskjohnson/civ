@@ -26,7 +26,6 @@ static int recv_all(int fd, void* buf, size_t len) {
             return -1;
         } else if (n < 0) {
             if (errno == EINTR) continue;
-            if (errno == EAGAIN || errno == EWOULDBLOCK) return -2;
             else return -1;
         } else {
             total += n;
