@@ -21,16 +21,17 @@ typedef struct {
 } GenCell;
 
 typedef struct {
-    int width;
-    int height;
+    MapSize size;
     unsigned int seed;
+    int margin_x;
+    int margin_y;
     float desired_land_proportion; // 0..1.0
     float fragmentation; // 0..1.0
     float evaporation_factor; // 0..1.0
     float precipitation_factor; // 0..1.0
     float runoff_factor; // 0..1.0
     float seepage_factor; // 0..1.0
-    Direction wind_direction;
+    Direction8 wind_direction;
     float wind_strength; // proportion of 1.0
     int water_cycles;
     float desired_river_proportion;
@@ -39,12 +40,14 @@ typedef struct {
     float moisture_cutoffs[2];
 } GenParameters;
 
-GenCell* allocate_world(GenParameters params);
+GenParameters default_gen_parameters(void);
+
+GenCell* alloc_world(GenParameters params);
 
 void free_world(GenCell* world);
 
 void generate_world(GenCell* out, GenParameters params);
 
-void to_tiles(GenCell* in, GenParameters params, Tile* tiles);
+void to_tiles(GenCell* in, Tile* tiles, MapSize size);
 
 #endif

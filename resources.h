@@ -4,11 +4,12 @@
 #include "raylib.h"
 #include "data.h"
 
-#define TEXTURE_COUNT 2
-#define TILE_WIDTH 16
-#define TILE_HEIGHT 16
-#define UNIT_WIDTH 16
-#define UNIT_HEIGHT 16
+#define TEXTURE_COUNT 1
+
+#define TILE_W 16
+#define TILE_H 16
+#define UNIT_W 16
+#define UNIT_H 16
 
 typedef struct {
     Texture2D texture;
@@ -19,10 +20,9 @@ typedef struct {
     Texture2D textures[TEXTURE_COUNT];
     TexturePortion tiles[T_COUNT][CONNECTIONS_PERMUTATIONS];
     TexturePortion units[U_COUNT];
-} TextureManager;
+} SpritesheetTextures;
 
-void load_textures(TextureManager* out);
-
-void unload_textures(TextureManager* tm);
+void load_textures(SpritesheetTextures* out);
+void unload_textures(SpritesheetTextures* in);
 
 #endif

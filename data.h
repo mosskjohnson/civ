@@ -5,24 +5,61 @@
 #include <string.h>
 
 #define MAX_ENTITIES 1024
-#define TILEMAP_W 160
-#define TILEMAP_H 120
 #define CONNECTIONS_PERMUTATIONS 16
 
 typedef int playerID;
+typedef int TileID;
+
+typedef struct {
+    int width;
+    int height;
+} MapSize;
 
 typedef enum {
-    D_N  = 0,
-    D_NE = 1,
-    D_E  = 2,
-    D_SE = 3,
-    D_S  = 4,
-    D_SW = 5,
-    D_W  = 6,
-    D_NW = 7,
-} Direction;
+    D_N4 = 0,
+    D_E4 = 1,
+    D_S4 = 2,
+    D_W4 = 3,
+} Direction4;
 
-Direction direction_opposite(Direction d);
+typedef enum {
+    D_N8  = 0,
+    D_NE8 = 1,
+    D_E8  = 2,
+    D_SE8 = 3,
+    D_S8  = 4,
+    D_SW8 = 5,
+    D_W8  = 6,
+    D_NW8 = 7,
+} Direction8;
+
+typedef enum {
+    D_N9  = 0,
+    D_NE9 = 1,
+    D_E9  = 2,
+    D_SE9 = 3,
+    D_S9  = 4,
+    D_SW9 = 5,
+    D_W9  = 6,
+    D_NW9 = 7,
+    D_ORIG9 = 8,
+} Direction9;
+
+static const int DELTAS_4[4][2] = {
+    {0, -1}, {1, 0}, {0, 1}, {-1, 0},
+};
+
+static const int DELTAS_8[8][2] = {
+    { 0,-1}, { 1,-1}, { 1, 0}, { 1, 1},
+    { 0, 1}, {-1, 1}, {-1, 0}, {-1,-1},
+};
+
+static const int DELTAS_9[9][2] = {
+    { 0,-1}, { 1,-1}, { 1, 0}, { 1, 1},
+    { 0, 1}, {-1, 1}, {-1, 0}, {-1,-1},
+    { 0, 0}, 
+};
+
 
 typedef struct {
     int id;
@@ -33,10 +70,9 @@ typedef enum {
     E_NIL,
     E_UNIT,
     E_CITY,
-    E_BUILDING,
 } EntityType;
 
-typedef enum {  // DO NOT CHANGE ORDER!
+typedef enum {  // ORDER OF SPRITESHEET
     U_SETTLER = 0,
     U_MILITIA,
     U_PHALANX,
@@ -77,15 +113,11 @@ typedef enum {
     U_PEACEFUL = (1 << 5),
 } UnitTraits;
 
-typedef struct {
-    const char* name;
-    UnitTraits traits;
-    int attack;
-    int defense;
-    int movement;
-    int carries;
-} UnitTypeInfo;
-extern UnitTypeInfo unit_type_info[U_COUNT];
+typedef enum {
+    B_NIL = 0,
+    B_BARRACKS,
+    B_TEMPLE,
+} Building;
 
 typedef struct {
     EntityType entity_type;
@@ -102,22 +134,10 @@ typedef struct {
         struct { // CITY
             int population;
             char name[32];
-            EntityRef building_first;
-        };
-        struct { // BUILDING
-            EntityRef building_next;
-            
+            Building buildings[64];
         };
     };
 } Entity;
-
-void new_unit(Entity* e, UnitType unit_type, playerID owner, int x, int y);
-
-Entity* alloc_entities(void);
-
-void add_entity(Entity* entities, Entity* e, int slot);
-
-void rem_entity(Entity* entities, int slot);
 
 typedef enum { // DO NOT CHANGE ORDER!
     T_NIL = 0,
@@ -142,14 +162,6 @@ typedef enum {
     T_IRRIGABLE = (1 << 2),
 } TileTraits;
 
-typedef struct {
-    const char* name;
-    TileTraits traits;
-    int movement_cost;
-    float defense_multiplier;
-} TileTypeInfo;
-extern TileTypeInfo tile_type_info[T_COUNT];
-
 typedef enum {
     C_NORTH = (1 << 0),
     C_EAST = (1 << 1),
@@ -170,99 +182,53 @@ typedef struct {
     EntityRef entity_on_first;
 } Tile;
 
-Tile* alloc_tiles(void);
-
 typedef enum {
     F_UNDISCOVERED = 0,
     F_FOGGY,
     F_VISIBLE,
 } Fog;
 
-Fog* alloc_fog(void);
-
-typedef enum {
-    SM_GAME_STARTING,
-    SM_INIT_DATA,
-    SM_TILE_CHANGED,
-    SM_UNIT_MOVED,
-    SM_UNIT_CHANGED,
-    SM_FOG_CHANGED,
-} ServerMsgType;
+typedef struct {
+    const char* name;
+    int attack;
+    int defense;
+    int movement;
+    int carries;
+    UnitTraits traits;
+} UnitTypeInfo;
+extern UnitTypeInfo unit_type_info[U_COUNT];
 
 typedef struct {
-    size_t len;
-    ServerMsgType type;
-} ServerMsgHeader;
+    const char* name;
+    TileTraits traits;
+    int movement_cost;
+    float defense_multiplier;
+} TileTypeInfo;
+extern TileTypeInfo tile_type_info[T_COUNT];
 
-typedef enum {
-    CM_ACTION,
-} ClientMsgType;
+Direction4 direction4_opposite(Direction4 d);
+Direction8 direction8_opposite(Direction8 d);
 
-typedef struct {
-    size_t len;
-    ClientMsgType type;
-} ClientMsgHeader;
+Entity* alloc_entities(void);
+void free_entities(Entity* entities);
+void new_unit(Entity* entities, playerID owner, int x, int y, UnitType unit_type);
 
-/*
+Tile* alloc_tiles(MapSize size);
+void free_tiles(Tile* tiles);
+TileID tile_id_at(MapSize size, int x, int y);
+Tile* tile_at(Tile* tiles, MapSize size, int x, int y);
+void neighbor_ids_4(MapSize size, int x, int y, TileID out[4]);
+void neighbor_ids_8(MapSize size, int x, int y, TileID out[8]);
+void neighbor_ids_9(MapSize size, int x, int y, TileID out[9]);
+void neighbor_coords_4(MapSize size, int x, int y, int xs_out[4], int ys_out[4]);
+void neighbor_coords_8(MapSize size, int x, int y, int xs_out[8], int ys_out[8]);
+void neighbor_coords_9(MapSize size, int x, int y, int xs_out[9], int ys_out[9]);
 
-Server has:
-    playerID 1,2,3
-    [fd1, fd2, fd3]
-    [addr1, addr2, addr3]
-    tiles (true)
-    entities (true)
-    [fog1, fog2, fog3]
-    [turn1, turn2, turn3]
+Fog* alloc_fog(MapSize size);
+void free_fog(Fog* fog);
+TileID fog_id_at(MapSize size, int x, int y);
+Fog* fog_at(Fog* fog, MapSize size, int x, int y);
 
-Client has:
-    playerID
-    tiles (partially filled)
-    entities (partially filled)
-    fog
-
-Server:
-    for id in 1..3 {
-        send_init_data(fd[id])
-    }
-    loop {
-        msgs = []
-        for id in 1..3 {
-            read_for_messages(fd[id])
-            msgs.push(msg)
-        }
-        for msg in msgs {
-            bool legal = validate()
-            if legal {
-                send_message_delta_state()
-            } else {
-                send_message_action_denied()
-            }
-        }
-    }
-
-Client:
-    read_for_init_state()
-    tiles = init
-    entities = init
-    fog = init
-    loop {
-        read_input()
-        action = map_input_to_action()
-        send_message_action()
-
-        msgs = []
-        read_for_messages()
-        for msg in msgs {
-            if msg==delta_state {
-                tiles += msg.delta
-                entities += msg.delta
-                fog += msg.delta
-            }
-        }
-        render()
-    }
-    
-*/
-
+int inbounds(MapSize size, int x, int y);
 
 #endif

@@ -118,26 +118,11 @@ int main(int argc, char** argv) {
 
     printf("seed: %d\n", seed);
 
-    GenParameters p = {
-        .width = WORLD_W,
-        .height = WORLD_H,
-        .seed = seed,
-        .desired_land_proportion = 0.45,
-        .fragmentation = 0.8,
-        .evaporation_factor = 0.5,
-        .precipitation_factor = 0.25,
-        .runoff_factor = 0.125,
-        .seepage_factor = 0.125,
-        .wind_direction = D_SW,
-        .wind_strength = 3.0,
-        .water_cycles = 40,
-        .desired_river_proportion = 0.08,
-        .elevation_cutoffs = {0.18, 0.45},
-        .temperature_cutoffs = {0.3, 0.7},
-        .moisture_cutoffs = {0.35, 0.6},
-    };
+    GenParameters p = default_gen_parameters();
+    p.size = (MapSize){WORLD_W, WORLD_H};
+    p.seed = seed;
 
-    GenCell* world = allocate_world(p);
+    GenCell* world = alloc_world(p);
 
     generate_world(world, p);
 
@@ -155,9 +140,9 @@ int main(int argc, char** argv) {
     
         BeginDrawing();
             ClearBackground(WHITE);
-            for (int x = 0; x < p.width; ++x) {
-                for (int y = 0; y < p.height; ++y) {
-                    GenCell* ref = world + y*p.width + x; 
+            for (int x = 0; x < WORLD_W; ++x) {
+                for (int y = 0; y < WORLD_H; ++y) {
+                    GenCell* ref = world + y*p.size.width + x; 
                                         
                     Color c = shader_fps[mode](ref);
                     
