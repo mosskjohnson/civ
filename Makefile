@@ -29,7 +29,7 @@ client: client.o data.o resources.o message.o
 	$(CC) $^ $(LDFLAGS_CLIENT) -o $@
 
 worldgendisplayer: worldgendisplayer.o worldgen.o data.o
-	$(CC) $^ $(LDFLAGS) -o $@
+	$(CC) $^ $(LDFLAGS_CLIENT) -o $@
 
 server.o: server.c data.h worldgen.h message.h
 	$(CC) $(CFLAGS) -c $< -o $@
