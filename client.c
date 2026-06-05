@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <sys/poll.h>
 #include <time.h>
+#include <math.h>
 
 #include "raylib.h"
 #include "rlgl.h"
@@ -14,6 +15,7 @@
 #include "data.h"
 #include "resources.h"
 #include "message.h"
+#include "utils.h"
 
 #define PORT 8080
 #define SERVER_IP "169.231.116.248"
@@ -30,12 +32,15 @@ typedef struct {
 } EntityVisual; // should be used for rendering to allow animations
 
 typedef struct {
+    Font font;
     SpritesheetTextures stextures;
     int canvas_w;
     int canvas_h;
     RenderTexture2D tiles_canvas;
     RenderTexture2D entities_canvas;
     RenderTexture2D fog_canvas;
+    RenderTexture2D final_canvas;
+    RenderTexture2D minimap;
     Shader fog_shader;
     int fog_shader_time_loc;
     int fog_shader_noise_loc;
@@ -63,6 +68,7 @@ typedef struct {
     int got_entities;
     int got_gens;
     int got_fog;
+    Camera2D cam;
 } ClientState;
 
 static const int direction_keys[8] = {KEY_W, KEY_E, KEY_D, KEY_C, KEY_X, KEY_Z, KEY_A, KEY_Q};
@@ -97,38 +103,11 @@ static void handle_networking(ClientState* state) {
 static void init_tiles_canvas(ClientState* state, TextureManager* tm) {
     tm->tiles_canvas = LoadRenderTexture(tm->canvas_w, tm->canvas_h);
     BeginTextureMode(tm->tiles_canvas);
-    ClearBackground(WHITE);
+    ClearBackground((Color){0,0,0,0});
     for (int x = 0; x < state->size.width; ++x) {
         for (int y = 0; y < state->size.height; ++y) {
             Tile* t = tile_at(state->tiles, state->size, x, y);
-            Connections connections = 0;
-            TileID neigh[4];
-            neighbor_ids_4(state->size, x, y, neigh);
-            switch (t->type) {
-                case T_NIL: break;
-                case T_OCEAN:
-                    for (TileID n = 0; n < 4; ++n) {
-                        if (neigh[n] != -1 && state->tiles[neigh[n]].type != T_OCEAN) {
-                            connections |= (1 << n);
-                        }
-                    }
-                    break;
-                case T_RIVER:
-                    for (TileID n = 0; n < 4; ++n) {
-                        if (neigh[n] != -1 && (state->tiles[neigh[n]].type == T_RIVER || state->tiles[neigh[n]].type == T_OCEAN)) {
-                            connections |= (1 << n);
-                        }
-                    }
-                    break;
-                default:
-                    for (TileID n = 0; n < 4; ++n) {
-                        if (neigh[n] != -1 && state->tiles[neigh[n]].type == t->type) {
-                            connections |= (1 << n);
-                        }
-                    }
-            }
-            TexturePortion tp = tm->stextures.tiles[t->type][connections];
-            DrawTexturePro(tp.texture, tp.portion, (Rectangle){x*TILE_W, y*TILE_H, TILE_W, TILE_H}, (Vector2){0.0, 0.0}, 0.0f, WHITE);
+            draw_tile(state->tiles, state->size, t, x, y, &tm->stextures);
         }
     }
     EndTextureMode();    
@@ -139,19 +118,7 @@ static void init_entities_canvas(ClientState* state, TextureManager* tm) {
     ClearBackground((Color){0,0,0,0});
     for (int i = 0; i < MAX_ENTITIES; ++i) {
         Entity* e = &state->entities[i];
-        if (e->entity_type == E_NIL) continue;
-        if (e->entity_type == E_UNIT) {
-            TexturePortion tp = tm->stextures.units[e->unit_type];
-            //DrawRectangle(e->x*TILE_W, e->y*TILE_H, UNIT_W, UNIT_H, RED);
-            DrawTexturePro(
-                tp.texture,
-                tp.portion,
-                (Rectangle){e->x*TILE_W, e->y*TILE_H, UNIT_W, UNIT_H},
-                (Vector2){0.0,0.0},
-                0.0,
-                WHITE
-            );
-        }
+        draw_entity(e, &tm->stextures);
     }
     EndTextureMode();
 }
@@ -163,13 +130,7 @@ static void init_fog_canvas(ClientState* state, TextureManager* tm) {
     for (int x = 0; x < state->size.width; ++x) {
         for (int y = 0; y < state->size.height; ++y) {
             Fog* f = fog_at(state->fog, state->size, x, y);
-            Color c;
-            switch (*f) {
-                case F_UNDISCOVERED: c = (Color){0,0,0,255}; break;
-                case F_FOGGY: c = (Color){0,0,0,128}; break;
-                case F_VISIBLE: c = (Color){0,0,0,0}; break;
-            }
-            DrawRectangle(x, y, 1, 1, c);
+            draw_fog(f, x, y);
         }
     }
     EndTextureMode();
@@ -236,6 +197,15 @@ static void handle_lobby(ClientState* state, TextureManager* tm) {
             init_tiles_canvas(state, tm);
             init_entities_canvas(state, tm);
             init_fog_canvas(state, tm);
+            tm->final_canvas = LoadRenderTexture(state->size.width*TILE_W, state->size.height*TILE_H);
+            GenTextureMipmaps(&tm->final_canvas.texture);
+            //SetTextureFilter(tm->final_canvas.texture, TEXTURE_FILTER_TRILINEAR);
+            tm->minimap = LoadRenderTexture(WINDOW_W/4.0, WINDOW_H/4.0);
+            state->cam = (Camera2D){
+                .zoom = 1.0,
+                .target = (Vector2){tm->canvas_w/2.0, tm->canvas_h/2.0},
+                .offset = (Vector2){WINDOW_W/2.0, WINDOW_H/2.0},
+            };
             state->mode = PLAYING;
             return;
         }
@@ -246,12 +216,12 @@ static void handle_lobby(ClientState* state, TextureManager* tm) {
     if (state->mode == LOBBY) {
         BeginDrawing();
         ClearBackground(WHITE);
-        DrawText("Waiting for server to start game.", 0, 0, 20, BLACK);
+        draw_text(tm->font, 16.0, 2.0, WINDOW_W/2, WINDOW_H/2, 1, 1, BLACK, "Waiting for server to start game. \nPlayers: %d/%d", state->num_players_now, state->max_players);
         EndDrawing();
     } else if (state->mode == INIT) {
         BeginDrawing();
         ClearBackground(WHITE);
-        DrawText("Loading...", 0, 0, 20, BLACK);
+        draw_text(tm->font, 16.0, 2.0, WINDOW_W/2, WINDOW_H/2, 1, 1, BLACK, "Loading...");
         EndDrawing();
     }
     
@@ -263,55 +233,16 @@ static void update_tiles_canvas(const ClientState* state, SM_UpdateTile* updates
         int x = updates[i].x;
         int y = updates[i].y;
         Tile* t = tile_at(state->tiles, state->size, x, y);
-        Connections connections = 0;
-        TileID neigh[4];
-        neighbor_ids_4(state->size, x, y, neigh);
-        switch (t->type) {
-            case T_NIL: break;
-            case T_OCEAN:
-                for (TileID n = 0; n < 4; ++n) {
-                    if (neigh[n] != -1 && state->tiles[neigh[n]].type != T_OCEAN) {
-                        connections |= (1 << n);
-                    }
-                }
-                break;
-            case T_RIVER:
-                for (TileID n = 0; n < 4; ++n) {
-                    if (neigh[n] != -1 && (state->tiles[neigh[n]].type == T_RIVER || state->tiles[neigh[n]].type == T_OCEAN)) {
-                        connections |= (1 << n);
-                    }
-                }
-                break;
-            default:
-                for (TileID n = 0; n < 4; ++n) {
-                    if (neigh[n] != -1 && state->tiles[neigh[n]].type == t->type) {
-                        connections |= (1 << n);
-                    }
-                }
-        }
-        TexturePortion tp = tm->stextures.tiles[t->type][connections];
-        DrawTexturePro(tp.texture, tp.portion, (Rectangle){x*TILE_W, y*TILE_H, TILE_W, TILE_H}, (Vector2){0.0, 0.0}, 0.0f, WHITE);
+        draw_tile(state->tiles, state->size, t, x, y, &tm->stextures);
     }
-    EndTextureMode();   
+    EndTextureMode();
 }
 static void update_entities_canvas(const ClientState* state, TextureManager* tm) {
     BeginTextureMode(tm->entities_canvas);
     ClearBackground((Color){0,0,0,0});
     for (int i = 0; i < MAX_ENTITIES; ++i) {
         Entity* e = &state->entities[i];
-        if (e->entity_type == E_NIL) continue;
-        if (e->entity_type == E_UNIT) {
-            TexturePortion tp = tm->stextures.units[e->unit_type];
-            //DrawRectangle(e->x*TILE_W, e->y*TILE_H, UNIT_W, UNIT_H, RED);
-            DrawTexturePro(
-                tp.texture,
-                tp.portion,
-                (Rectangle){e->x*TILE_W, e->y*TILE_H, UNIT_W, UNIT_H},
-                (Vector2){0.0,0.0},
-                0.0,
-                WHITE
-            );
-        }
+        draw_entity(e, &tm->stextures);
     }
     EndTextureMode();
 }
@@ -323,13 +254,7 @@ static void update_fog_canvas(ClientState* state, SM_UpdateFog* updates, int cou
         int x = updates[i].x;
         int y = updates[i].y;
         Fog* f = fog_at(state->fog, state->size, x, y);
-        Color c;
-        switch (*f) {
-            case F_UNDISCOVERED: c = (Color){0,0,0,255}; break;
-            case F_FOGGY: c = (Color){0,0,0,128}; break;
-            case F_VISIBLE: c = (Color){0,0,0,0}; break;
-        }
-        DrawRectangle(x, y, 1, 1, c);
+        draw_fog(f, x, y);
     }
     EndBlendMode();
     EndTextureMode();
@@ -351,6 +276,16 @@ static void update_fog(ClientState* state, SM_UpdateFog* updates, int count) {
     for (int i = 0; i < count; ++i) {
         SM_UpdateFog update = updates[i];
         *fog_at(state->fog, state->size, update.x, update.y) = update.updated;
+    }
+    for (int i = 0; i < MAX_ENTITIES; ++i) {
+        Entity* e = &state->entities[i];
+        if (e->entity_type != E_NIL && e->owner == state->my_player_id) {
+            int neighbors[9][2];
+            neighbor_coords_9(state->size, e->x, e->y, neighbors);
+            for (Direction9 d = 0; d < 9; ++d) {
+                *fog_at(state->fog, state->size, neighbors[d][0], neighbors[d][1]) = F_VISIBLE;
+            }
+        }
     }
 }
 
@@ -419,26 +354,45 @@ static void handle_playing(ClientState* state, TextureManager* tm) {
             }
         }
     }
+
+    // camera
+    float wheel = GetMouseWheelMove();
+    if (wheel != 0) {
+        Vector2 mouse = GetMousePosition();
+        Vector2 world_before = GetScreenToWorld2D(mouse, state->cam);
+          state->cam.zoom *= (1.0f + wheel * 0.2f);
+          state->cam.zoom = CLAMP(state->cam.zoom, 1.0f, 8.0f);
+        Vector2 world_after = GetScreenToWorld2D(mouse, state->cam);
+        state->cam.target.x += world_before.x - world_after.x;
+        state->cam.target.y += world_before.y - world_after.y;
+    }
+    if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+        Vector2 delta = GetMouseDelta();
+        state->cam.target.x -= delta.x / state->cam.zoom;
+        state->cam.target.y -= delta.y / state->cam.zoom;
+    }
+    float half_screen_h = (WINDOW_H / 2.0f) / state->cam.zoom;
+    state->cam.target.y = CLAMP(state->cam.target.y, half_screen_h, tm->canvas_h - half_screen_h);
+    float canvas_w = tm->canvas_w;
+    state->cam.target.x = fmodf(state->cam.target.x, canvas_w);
+    if (state->cam.target.x < 0) state->cam.target.x += canvas_w;
+    
     CM_UnitMove* unit_moves = malloc(MAX_ENTITIES * sizeof(CM_UnitMove));
     int unit_moves_count = 0;
     
-    int keys_pressed[MAX_KEYBOARD_KEYS];
-    int keys_pressed_count = 0;
+    int last_key_pressed = 0;
     int k = GetKeyPressed();
     while (k > 0) {
-        keys_pressed[keys_pressed_count++] = k;
+        last_key_pressed = k;
         k = GetKeyPressed();
     }
-    for (int i = 0; i < keys_pressed_count; ++i) {
-        int key_pressed = keys_pressed[i];
-        for (int dk = 0; dk < 8; ++dk) {
-            if (key_pressed == direction_keys[dk]) {
-                int x = state->entities[state->active_unit.id].x;
-                int y = state->entities[state->active_unit.id].y;
-                int dx = DELTAS_8[dk][0];
-                int dy = DELTAS_8[dk][1];
-                unit_moves[unit_moves_count++] = (CM_UnitMove){state->active_unit, x, y, x+dx, y+dy};
-            }
+    for (int dk = 0; dk < 8; ++dk) {
+        if (last_key_pressed == direction_keys[dk]) {
+            int x_from = state->entities[state->active_unit.id].x;
+            int y_from = state->entities[state->active_unit.id].y;
+            int x_to = wrapped_x(state->size, x_from + DELTAS_8[dk][0]);
+            int y_to = wrapped_y(state->size, y_from + DELTAS_8[dk][1]);
+            unit_moves[unit_moves_count++] = (CM_UnitMove){state->active_unit, x_from, y_from, x_to, y_to};
         }
     }
     // send
@@ -450,35 +404,81 @@ static void handle_playing(ClientState* state, TextureManager* tm) {
     float f = GetTime();
     SetShaderValue(tm->fog_shader, tm->fog_shader_time_loc, &f, SHADER_UNIFORM_FLOAT);
     
-    BeginDrawing();
-    ClearBackground(WHITE);
+    BeginTextureMode(tm->final_canvas);
+    ClearBackground((Color){0,0,0,0});
     DrawTexturePro(
-        tm->tiles_canvas.texture, 
-        (Rectangle){0,0,tm->canvas_w, -tm->canvas_h}, 
-        (Rectangle){0,0,WINDOW_W,WINDOW_H}, 
-        (Vector2){0.0,0.0}, 
-        0.0, 
-        WHITE
-    );
+            tm->tiles_canvas.texture,
+            (Rectangle){0,0,tm->tiles_canvas.texture.width, -tm->tiles_canvas.texture.height},
+            (Rectangle){0,0,tm->canvas_w,tm->canvas_h},
+            (Vector2){0.0,0.0}, 0.0, WHITE
+        );
     DrawTexturePro(
-        tm->entities_canvas.texture,
-        (Rectangle){0,0,tm->canvas_w, -tm->canvas_h},
-        (Rectangle){0,0,WINDOW_W,WINDOW_H},
-        (Vector2){0.0,0.0},
-        0.0,
-        WHITE
-    );
+            tm->entities_canvas.texture,
+            (Rectangle){0,0,tm->entities_canvas.texture.width, -tm->entities_canvas.texture.height},
+            (Rectangle){0,0,tm->canvas_w,tm->canvas_h},
+            (Vector2){0.0,0.0}, 0.0, WHITE
+        );
     BeginShaderMode(tm->fog_shader);
     DrawTexturePro(
         tm->fog_canvas.texture,
         (Rectangle){0,0,tm->fog_canvas.texture.width, -tm->fog_canvas.texture.height},
-        (Rectangle){0,0,WINDOW_W,WINDOW_H},
-        (Vector2){0.0,0.0},
-        0.0,
-        WHITE
+        (Rectangle){0,0,tm->canvas_w,tm->canvas_h},
+        (Vector2){0.0,0.0}, 0.0, WHITE
     );
     EndShaderMode();
-    DrawFPS(0,0);
+    EndTextureMode();
+
+    BeginTextureMode(tm->minimap);
+    ClearBackground(BLACK);
+    int mini_w = tm->minimap.texture.width;
+    int mini_h = tm->minimap.texture.height;
+    DrawTexturePro(
+        tm->final_canvas.texture,
+        (Rectangle){0, 0, tm->canvas_w, -tm->canvas_h},
+        (Rectangle){0, 0, tm->minimap.texture.width, tm->minimap.texture.height},
+        (Vector2){0, 0}, 0.0f, WHITE
+    );
+    float scale_x = (float)mini_w / tm->canvas_w;
+    float scale_y = (float)mini_h / tm->canvas_h;
+    float view_w = (WINDOW_W / state->cam.zoom) * scale_x;
+    float view_h = (WINDOW_H / state->cam.zoom) * scale_y;
+    float view_x = state->cam.target.x * scale_x - view_w/2.0f;
+    float view_y = state->cam.target.y * scale_y - view_h/2.0f;
+    DrawRectangleLines((int)view_x, (int)view_y, (int)view_w, (int)view_h, WHITE);
+    DrawRectangleLines(0, 0, mini_w, mini_h, WHITE);
+    EndTextureMode();
+    
+    BeginDrawing();
+    ClearBackground((Color){0,0,0,0});
+    BeginMode2D(state->cam);
+    DrawTexturePro(
+        tm->final_canvas.texture,
+        (Rectangle){0, 0, tm->canvas_w, -tm->canvas_h},
+        (Rectangle){0, 0, tm->canvas_w, tm->canvas_h},
+        (Vector2){0, 0}, 0.0f, WHITE
+    );
+    // wrap left
+    DrawTexturePro(
+        tm->final_canvas.texture,
+        (Rectangle){0, 0, tm->canvas_w, -tm->canvas_h},
+        (Rectangle){-tm->canvas_w, 0, tm->canvas_w, tm->canvas_h},
+        (Vector2){0, 0}, 0.0f, WHITE
+    );
+    // wrap right
+    DrawTexturePro(
+        tm->final_canvas.texture,
+        (Rectangle){0, 0, tm->canvas_w, -tm->canvas_h},
+        (Rectangle){tm->canvas_w, 0, tm->canvas_w, tm->canvas_h},
+        (Vector2){0, 0}, 0.0f, WHITE
+    );
+    EndMode2D();
+    DrawTexturePro(
+        tm->minimap.texture,
+        (Rectangle){0, 0, mini_w, -mini_h},
+        (Rectangle){0, 0, WINDOW_W/4.0, WINDOW_H/4.0},
+        (Vector2){0, 0}, 0.0f, WHITE
+    );
+    draw_text(tm->font, 16.0, 2.0, WINDOW_W, 0, 2, 0, WHITE, "%d FPS", GetFPS());
     EndDrawing();
 }
 
@@ -491,6 +491,9 @@ int main(void) {
     InitWindow(WINDOW_W, WINDOW_H, "Civ");
 
     TextureManager tm = {0};
+    int codepoints[256];
+    for (int i = 0; i < 256; ++i) codepoints[i] = i;
+    tm.font = LoadFontEx("resources/fonts/civ0.ttf", 32, codepoints, 256);
     load_textures(&tm.stextures);
     tm.fog_shader = LoadShader(0, "resources/shaders/fog.fs");
     tm.fog_shader_time_loc = GetShaderLocation(tm.fog_shader, "time");

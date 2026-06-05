@@ -26,7 +26,30 @@ TileType biome_matrix[ELEVATION_LEVELS][TEMPERATURE_LEVELS][MOISTURE_LEVELS] = {
     },
 };
 
-GenParameters default_gen_parameters(void) {
+GenParameters default_gen_parameters_medium(void) {
+    return (GenParameters){
+        .size = {80, 50},
+        .seed = 0, // filled in later
+        .margin_x = 3,
+        .margin_y = 5,
+        .desired_land_proportion = 0.4,
+        .fragmentation = 0.9,
+        .evaporation_factor = 0.5,
+        .precipitation_factor = 0.25,
+        .runoff_factor = 0.125,
+        .seepage_factor = 0.125,
+        .wind_direction = D_SW8,
+        .wind_strength = 3.0,
+        .water_cycles = 40,
+        .desired_river_proportion = 0.06,
+        .elevation_cutoffs = {0.20, 0.5},
+        .temperature_cutoffs = {0.3, 0.7},
+        .moisture_cutoffs = {0.35, 0.7},
+    };
+}
+
+
+GenParameters default_gen_parameters_large(void) {
     return (GenParameters){
         .size = {120, 90},
         .seed = 0, // filled in later

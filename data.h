@@ -60,6 +60,15 @@ static const int DELTAS_9[9][2] = {
     { 0, 0}, 
 };
 
+static const int DELTAS_R2[21][2] = {
+    { 0,-1}, { 1,-1}, { 1, 0}, { 1, 1},
+    { 0, 1}, {-1, 1}, {-1, 0}, {-1,-1},
+    { 0, 0},
+    { 0,-2}, { 1,-2}, { 2,-1}, { 2, 0},
+    { 2, 1}, { 1, 2}, { 0, 2}, {-1, 2},
+    {-2, 1}, {-2, 0}, {-2,-1}, {-1,-2},
+};
+
 
 typedef struct {
     int id;
@@ -128,6 +137,7 @@ typedef struct {
     union {
         struct { // UNIT
             UnitType unit_type;
+            int movement_remaining;
             EntityRef carrying_first;
             EntityRef carrying_next;
         };
@@ -220,9 +230,11 @@ Tile* tile_at(Tile* tiles, MapSize size, int x, int y);
 void neighbor_ids_4(MapSize size, int x, int y, TileID out[4]);
 void neighbor_ids_8(MapSize size, int x, int y, TileID out[8]);
 void neighbor_ids_9(MapSize size, int x, int y, TileID out[9]);
-void neighbor_coords_4(MapSize size, int x, int y, int xs_out[4], int ys_out[4]);
-void neighbor_coords_8(MapSize size, int x, int y, int xs_out[8], int ys_out[8]);
-void neighbor_coords_9(MapSize size, int x, int y, int xs_out[9], int ys_out[9]);
+void neighbor_coords_4(MapSize size, int x, int y, int out[4][2]);
+void neighbor_coords_8(MapSize size, int x, int y, int out[8][2]);
+void neighbor_coords_9(MapSize size, int x, int y, int out[9][2]);
+int wrapped_x(MapSize size, int x);
+int wrapped_y(MapSize size, int y);
 
 Fog* alloc_fog(MapSize size);
 void free_fog(Fog* fog);

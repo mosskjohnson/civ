@@ -40,7 +40,9 @@ typedef struct {
     float moisture_cutoffs[2];
 } GenParameters;
 
-GenParameters default_gen_parameters(void);
+GenParameters default_gen_parameters_medium(void);
+GenParameters default_gen_parameters_large(void);
+
 
 GenCell* alloc_world(GenParameters params);
 

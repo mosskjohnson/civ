@@ -111,76 +111,56 @@ void neighbor_ids_4(MapSize size, int x, int y, TileID out[4]) {
     for (Direction4 d = 0; d < 4; ++d) {
         int nx = x+DELTAS_4[d][0];
         int ny = y+DELTAS_4[d][1];
-        if (!inbounds(size, nx, ny)) {
-            out[d] = -1;
-        } else {
-            out[d] = tile_id_at(size, nx, ny);
-        }
+        out[d] = tile_id_at(size, wrapped_x(size, nx), wrapped_y(size, ny));
     }
 }
 void neighbor_ids_8(MapSize size, int x, int y, TileID out[8]) {
     for (Direction8 d = 0; d < 8; ++d) {
         int nx = x+DELTAS_8[d][0];
         int ny = y+DELTAS_8[d][1];
-        if (!inbounds(size, nx, ny)) {
-            out[d] = -1;
-        } else {
-            out[d] = tile_id_at(size, nx, ny);
-        }
+        out[d] = tile_id_at(size, wrapped_x(size, nx), wrapped_y(size, ny));
     }
 }
 void neighbor_ids_9(MapSize size, int x, int y, TileID out[9]) {
     for (Direction9 d = 0; d < 9; ++d) {
         int nx = x+DELTAS_9[d][0];
         int ny = y+DELTAS_9[d][1];
-        if (!inbounds(size, nx, ny)) {
-            out[d] = -1;
-        } else {
-            out[d] = tile_id_at(size, nx, ny);
-        }
+        out[d] = tile_id_at(size, wrapped_x(size, nx), wrapped_y(size, ny));
     }
 }
 
-void neighbor_coords_4(MapSize size, int x, int y, int xs_out[4], int ys_out[4]) {
+void neighbor_coords_4(MapSize size, int x, int y, int out[4][2]) {
     for (Direction4 d = 0; d < 4; ++d) {
         int nx = x+DELTAS_4[d][0];
         int ny = y+DELTAS_4[d][1];
-        if (!inbounds(size, nx, ny)) {
-            xs_out[d] = -1;
-            ys_out[d] = -1;
-        } else {
-            xs_out[d] = nx;
-            ys_out[d] = ny;
-        }
+        out[d][0] = wrapped_x(size, nx);
+        out[d][1] = wrapped_y(size, ny);
     }
 }
-void neighbor_coords_8(MapSize size, int x, int y, int xs_out[8], int ys_out[8]) {
+void neighbor_coords_8(MapSize size, int x, int y, int out[8][2]) {
     for (Direction8 d = 0; d < 8; ++d) {
         int nx = x+DELTAS_8[d][0];
         int ny = y+DELTAS_8[d][1];
-        if (!inbounds(size, nx, ny)) {
-            xs_out[d] = -1;
-            ys_out[d] = -1;
-        } else {
-            xs_out[d] = nx;
-            ys_out[d] = ny;
-        }
+        out[d][0] = wrapped_x(size, nx);
+        out[d][1] = wrapped_y(size, ny);
     }
 }
-void neighbor_coords_9(MapSize size, int x, int y, int xs_out[9], int ys_out[9]) {
+void neighbor_coords_9(MapSize size, int x, int y, int out[9][2]) {
     for (Direction9 d = 0; d < 9; ++d) {
         int nx = x+DELTAS_9[d][0];
         int ny = y+DELTAS_9[d][1];
-        if (!inbounds(size, nx, ny)) {
-            xs_out[d] = -1;
-            ys_out[d] = -1;
-        } else {
-            xs_out[d] = nx;
-            ys_out[d] = ny;
-        }
+        out[d][0] = wrapped_x(size, nx);
+        out[d][1] = wrapped_y(size, ny);
     }
 }
 
+int wrapped_x(MapSize size, int x) {
+    return ((x % size.width) + size.width) % size.width;
+}
+
+int wrapped_y(MapSize size, int y) {
+    return ((y % size.height) + size.height) % size.height;
+}
 
 Fog* alloc_fog(MapSize size) {
     return calloc(size.width*size.height, sizeof(Fog));

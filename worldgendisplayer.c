@@ -8,8 +8,8 @@
 #define WINDOW_W 960
 #define WINDOW_H 720
 
-#define WORLD_W 120
-#define WORLD_H 90
+#define WORLD_W 80
+#define WORLD_H 50
 
 enum Mode {
     TILETYPE,
@@ -118,7 +118,7 @@ int main(int argc, char** argv) {
 
     printf("seed: %d\n", seed);
 
-    GenParameters p = default_gen_parameters();
+    GenParameters p = default_gen_parameters_medium();
     p.size = (MapSize){WORLD_W, WORLD_H};
     p.seed = seed;
 

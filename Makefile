@@ -34,7 +34,7 @@ worldgendisplayer: worldgendisplayer.o worldgen.o data.o
 server.o: server.c data.h worldgen.h message.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-client.o: client.c data.h resources.h message.h
+client.o: client.c utils.h data.h resources.h message.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 resources.o: resources.c data.h
@@ -51,6 +51,9 @@ worldgen.o: worldgen.c data.h
 
 message.o: message.c
 	$(CC) $(CFLAGS) -c $< -o $@
-	
+
+view.o: view.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
 clean:
 	rm -f *.o server client worldgendisplayer

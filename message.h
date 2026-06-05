@@ -1,3 +1,6 @@
+#ifndef MESSAGE_H
+#define MESSAGE_H
+
 #include <stdlib.h>
 
 #include "data.h"
@@ -71,3 +74,5 @@ typedef struct {
 
 void send_msg(int fd, MsgType type, const void* body, int count, size_t element_size);
 int recv_alloc_msg(int fd, MsgHeader* header_out, void** body_out);
+
+#endif

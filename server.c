@@ -38,6 +38,7 @@ typedef struct {
     Entity* entities; // init
     int* gens; // init
     Tile* tiles; // init
+    Tile* tiles_per_player[MAX_PLAYERS];
     Fog* fog_per_player[MAX_PLAYERS]; // init
 } ServerState;
 
@@ -123,20 +124,20 @@ static void handle_lobby(ServerState* state) {
     }
 }
 
-static void random_player_start_positions(ServerState* state, int xs_out[MAX_PLAYERS], int ys_out[MAX_PLAYERS]) {
+static void random_player_start_positions(ServerState* state, int out[MAX_PLAYERS][2]) {
     for (playerID i = 0; i < state->player_count; ++i) {
         while (1) {
             int x = rand()%(state->size.width);
             int y = rand()%(state->size.height);
             if (tile_at(state->tiles, state->size, x, y)->type != T_OCEAN) {
-                xs_out[i] = x;
-                ys_out[i] = y;
+                out[i][0] = x;
+                out[i][1] = y;
                 break;
             }
         }
     }
 }
-static void fair_player_start_positions(ServerState* state, int xs_out[MAX_PLAYERS], int ys_out[MAX_PLAYERS]) {
+static void fair_player_start_positions(ServerState* state, int out[MAX_PLAYERS][2]) {
     int* cand_xs = malloc(state->size.width * state->size.height * sizeof(int));
     int* cand_ys = malloc(state->size.width * state->size.height * sizeof(int));
     int cand_count = 0;
@@ -153,7 +154,7 @@ static void fair_player_start_positions(ServerState* state, int xs_out[MAX_PLAYE
     if (cand_count < state->player_count) {
         printf("SERVER: warning: not enough fair starting positions found. Defaulting to random\n");
         free(cand_xs); free(cand_ys);
-        random_player_start_positions(state, xs_out, ys_out);
+        random_player_start_positions(state, out);
         return;
     }
     for (playerID i = 0; i < state->player_count; ++i) {
@@ -166,8 +167,8 @@ static void fair_player_start_positions(ServerState* state, int xs_out[MAX_PLAYE
             int cy = cand_ys[idx];
             int min_dist = INT_MAX;
             for (playerID j = 0; j < i; ++j) {
-                int dx = cx - xs_out[j];
-                int dy = cy - ys_out[j];
+                int dx = cx - out[j][0];
+                int dy = cy - out[j][1];
                 int dist = dx*dx + dy*dy;
                 if (dist < min_dist) min_dist = dist;
             }
@@ -176,8 +177,8 @@ static void fair_player_start_positions(ServerState* state, int xs_out[MAX_PLAYE
                 best = idx;
             }
         }
-        xs_out[i] = cand_xs[best];
-        ys_out[i] = cand_ys[best];
+        out[i][0] = cand_xs[best];
+        out[i][1] = cand_ys[best];
     }
     free(cand_xs);
     free(cand_ys);
@@ -188,6 +189,9 @@ static void handle_init(ServerState* state) {
     state->gens = calloc(MAX_ENTITIES, sizeof(int));
     state->tiles = alloc_tiles(state->size);
     for (playerID i = 0; i < state->player_count; ++i) {
+        Tile* tiles_for_this_player = alloc_tiles(state->size);
+        state->tiles_per_player[i] = tiles_for_this_player;
+        
         Fog* fog = alloc_fog(state->size);
         // for (int x = state->size.width/8; x < state->size.width/8*7; ++x) { // TODO: DEBUG PURPOSES
             // for (int y = state->size.height/8; y < state->size.height/8*7; ++y) {
@@ -207,19 +211,28 @@ static void handle_init(ServerState* state) {
         to_tiles(gen_world, state->tiles, state->size);
     free_world(gen_world);
     // player start positions
-    int xs_start[MAX_PLAYERS];
-    int ys_start[MAX_PLAYERS];
-    if (FAIR_START) fair_player_start_positions(state, xs_start, ys_start);
-    else random_player_start_positions(state, xs_start, ys_start);
+    int start_coords[MAX_PLAYERS][2];
+    if (FAIR_START) fair_player_start_positions(state, start_coords);
+    else random_player_start_positions(state, start_coords);
     
     for (playerID i = 0; i < state->player_count; ++i) {
-        int x = xs_start[i];
-        int y = ys_start[i];
+        int x = start_coords[i][0];
+        int y = start_coords[i][1];
         new_unit(state->entities, i, x, y, U_SETTLER);
-        TileID neighs[9];
-        neighbor_ids_9(state->size, x, y, neighs);
-        for (int d = 0; d < 9; ++d) {
-            state->fog_per_player[i][neighs[d]] = F_VISIBLE;
+        new_unit(state->entities, i, x, y, U_MILITIA);
+        
+        int neighbor_coords[9][2];
+        neighbor_coords_9(state->size, x, y, neighbor_coords);
+        for (Direction9 d = 0; d < 9; ++d) {
+            int nx = neighbor_coords[d][0];
+            int ny = neighbor_coords[d][1];
+            *fog_at(state->fog_per_player[i], state->size, nx, ny) = F_VISIBLE;
+
+            TileID neighs2[9];
+            neighbor_ids_9(state->size, nx, ny, neighs2);
+            for (Direction9 d2 = 0; d2 < 9; ++d2) {
+                state->tiles_per_player[i][neighs2[d2]] = state->tiles[neighs2[d2]];
+            }
         }
     }
     
@@ -230,7 +243,8 @@ static void handle_init(ServerState* state) {
         send_msg(fd, SM_INIT_MAPSIZE, &state->size, 1, sizeof(MapSize));
         send_msg(fd, SM_INIT_ENTITIES, state->entities, MAX_ENTITIES, sizeof(Entity));
         send_msg(fd, SM_INIT_GENS, state->gens, MAX_ENTITIES, sizeof(int));
-        send_msg(fd, SM_INIT_TILES, state->tiles, state->size.width*state->size.height, sizeof(Tile));
+        send_msg(fd, SM_INIT_TILES, state->tiles_per_player[i], state->size.width*state->size.height, sizeof(Tile));
+        //send_msg(fd, SM_INIT_TILES, state->tiles, state->size.width*state->size.height, sizeof(Tile)); // DEBUG PURPOSES
         send_msg(fd, SM_INIT_FOG, state->fog_per_player[i], state->size.width*state->size.height, sizeof(Fog));
     }
 }
@@ -239,33 +253,43 @@ static int try_move_unit(ServerState* state, CM_UnitMove move, playerID owner, S
     printf("try_move_unit: ref.id=%d ref.gen=%d\n", move.ref.id, move.ref.gen);
     if (state->gens[move.ref.id] != move.ref.gen) return 0;
     printf("x_from=%d y_from=%d x_to=%d y_to=%d\n", move.x_from, move.y_from, move.x_to, move.y_to);
-    if (!inbounds(state->size, move.x_to, move.y_to)) return 0;
+    if (move.x_from != state->entities[move.ref.id].x || move.y_from != state->entities[move.ref.id].y) return 0;
+    int possible_move_spots[8][2];
+    neighbor_coords_8(state->size, move.x_from, move.y_from, possible_move_spots);
     for (Direction8 d = 0; d < 8; ++d) {
-        if (move.x_from + DELTAS_8[d][0] == move.x_to && move.y_from + DELTAS_8[d][1] == move.y_to) {
+        if (possible_move_spots[d][0] == move.x_to && possible_move_spots[d][1] == move.y_to) {
             if (tile_at(state->tiles, state->size, move.x_to, move.y_to)->type == T_OCEAN) return 0;
 
             state->entities[move.ref.id].x = move.x_to;
             state->entities[move.ref.id].y = move.y_to;
             entities_out[(*entities_out_count)++] = (SM_UpdateEntity){move.ref, state->entities[move.ref.id]};
-            
-            // need to decide if tiles store the entities that are on top of them
-            // TODO: server should not send full tilemap at the start and should send an SM_UpdateTile here instead
-            (void)tiles_out;
-            (void)tiles_out_count;
 
-            for (int i = 0; i < 9; ++i) {
-                int nx = move.x_from + DELTAS_9[i][0];
-                int ny = move.y_from + DELTAS_9[i][1];
+            int neigh9_from[9][2];
+            neighbor_coords_9(state->size, move.x_from, move.y_from, neigh9_from);
+            for (Direction9 d = 0; d < 9; ++d) {
+                int nx = neigh9_from[d][0];
+                int ny = neigh9_from[d][1];
                 Fog* f = fog_at(state->fog_per_player[owner], state->size, nx, ny);
                 *f = F_FOGGY;
                 fog_out[(*fog_out_count)++] = (SM_UpdateFog){nx, ny, *f};
             }
-            for (int i = 0; i < 9; ++i) {
-                int nx = move.x_to + DELTAS_9[i][0];
-                int ny = move.y_to + DELTAS_9[i][1];
+            int neigh9_to[9][2];
+            neighbor_coords_9(state->size, move.x_to, move.y_to, neigh9_to);
+            for (Direction9 d = 0; d < 9; ++d) {
+                int nx = neigh9_to[d][0];
+                int ny = neigh9_to[d][1];
                 Fog* f = fog_at(state->fog_per_player[owner], state->size, nx, ny);
                 *f = F_VISIBLE;
                 fog_out[(*fog_out_count)++] = (SM_UpdateFog){nx, ny, *f};
+
+                // need to decide if tiles store the entities that are on top of them
+                int neighbor_neighbors[9][2];
+                neighbor_coords_9(state->size, nx, ny, neighbor_neighbors);
+                for (Direction9 d2 = 0; d2 < 9; ++d2) {
+                    int nnx = neighbor_neighbors[d2][0];
+                    int nny = neighbor_neighbors[d2][1];
+                    tiles_out[(*tiles_out_count)++] = (SM_UpdateTile){nnx, nny, *tile_at(state->tiles, state->size, nnx, nny)};
+                }
             }
             return 1;
         }
@@ -299,26 +323,23 @@ static void handle_playing(ServerState* state) {
                 case CM_UNIT_MOVE: {
                     printf("unit moves received from player %d\n", in_msg.from);
 
+                    SM_UpdateTile* tile_updates = malloc(state->size.width * state->size.height * sizeof(SM_UpdateTile));
+                    SM_UpdateEntity* entity_updates = malloc(MAX_ENTITIES * sizeof(SM_UpdateEntity));
+                    SM_UpdateFog* fog_updates = malloc(state->size.width * state->size.height * sizeof(SM_UpdateFog));
+                    int tile_updates_count = 0, entity_updates_count = 0, fog_updates_count = 0;
+
                     CM_UnitMove* moves = (CM_UnitMove*)in_msg.body;
                     for (int m = 0; m < in_msg.header.count; ++m) {
                         CM_UnitMove move = moves[m];
-
-                        SM_UpdateTile* tile_updates = malloc(state->size.width * state->size.height * sizeof(SM_UpdateTile));
-                        SM_UpdateEntity* entity_updates = malloc(MAX_ENTITIES * sizeof(SM_UpdateEntity));
-                        SM_UpdateFog* fog_updates = malloc(state->size.width * state->size.height * sizeof(SM_UpdateFog));
-                        int tile_updates_count = 0, entity_updates_count = 0, fog_updates_count = 0;
-                        
-                        try_move_unit(state, move, in_msg.from, tile_updates, &tile_updates_count, entity_updates, &entity_updates_count, fog_updates, &fog_updates_count);
-
-                        if (tile_updates_count > 0) send_msg(state->client_fds[in_msg.from].fd, SM_UPDATE_TILES, tile_updates, tile_updates_count, sizeof(SM_UpdateTile));
-                        if (entity_updates_count > 0) send_msg(state->client_fds[in_msg.from].fd, SM_UPDATE_ENTITIES, entity_updates, entity_updates_count, sizeof(SM_UpdateEntity));
-                        if (fog_updates_count > 0) send_msg(state->client_fds[in_msg.from].fd, SM_UPDATE_FOG, fog_updates, fog_updates_count, sizeof(SM_UpdateFog));
-                        
-                        free(tile_updates);
-                        free(entity_updates);
-                        free(fog_updates);
+                        try_move_unit(state, move, in_msg.from, tile_updates, &tile_updates_count, entity_updates, &entity_updates_count, fog_updates, &fog_updates_count);    
                     }
-
+                    
+                    if (tile_updates_count > 0) send_msg(state->client_fds[in_msg.from].fd, SM_UPDATE_TILES, tile_updates, tile_updates_count, sizeof(SM_UpdateTile));
+                    if (entity_updates_count > 0) send_msg(state->client_fds[in_msg.from].fd, SM_UPDATE_ENTITIES, entity_updates, entity_updates_count, sizeof(SM_UpdateEntity));
+                    if (fog_updates_count > 0) send_msg(state->client_fds[in_msg.from].fd, SM_UPDATE_FOG, fog_updates, fog_updates_count, sizeof(SM_UpdateFog));
+                    free(tile_updates);
+                    free(entity_updates);
+                    free(fog_updates);
                     break;
                 }
                 default:
@@ -336,8 +357,9 @@ int main(void) {
     // read parameters
     // TODO: for now, this is hard coded, later it will be based on argv
     MapSize size = {MAP_W, MAP_H};
-    GenParameters p = default_gen_parameters();
+    GenParameters p = default_gen_parameters_medium();
     p.size = size;
+    p.margin_x = 0;
     p.seed = time(NULL);
 
     ServerState state = {0};
