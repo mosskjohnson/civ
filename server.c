@@ -38,7 +38,6 @@ typedef struct {
     Entity* entities; // init
     int* gens; // init
     Tile* tiles; // init
-    Tile* tiles_per_player[MAX_PLAYERS];
     Fog* fog_per_player[MAX_PLAYERS]; // init
 } ServerState;
 
@@ -189,20 +188,7 @@ static void handle_init(ServerState* state) {
     state->gens = calloc(MAX_ENTITIES, sizeof(int));
     state->tiles = alloc_tiles(state->size);
     for (playerID i = 0; i < state->player_count; ++i) {
-        Tile* tiles_for_this_player = alloc_tiles(state->size);
-        state->tiles_per_player[i] = tiles_for_this_player;
-        
         Fog* fog = alloc_fog(state->size);
-        // for (int x = state->size.width/8; x < state->size.width/8*7; ++x) { // TODO: DEBUG PURPOSES
-            // for (int y = state->size.height/8; y < state->size.height/8*7; ++y) {
-                // *fog_at(fog, state->size, x, y) = F_FOGGY;
-            // }
-        // }
-        // for (int x = state->size.width/4; x < state->size.width/4*3; ++x) {
-            // for (int y = state->size.height/4; y < state->size.height/4*3; ++y) {
-                // *fog_at(fog, state->size, x, y) = F_VISIBLE;
-            // }
-        // }
         state->fog_per_player[i] = fog;
     }
     // generate world
@@ -227,33 +213,140 @@ static void handle_init(ServerState* state) {
             int nx = neighbor_coords[d][0];
             int ny = neighbor_coords[d][1];
             *fog_at(state->fog_per_player[i], state->size, nx, ny) = F_VISIBLE;
-
-            TileID neighs2[9];
-            neighbor_ids_9(state->size, nx, ny, neighs2);
-            for (Direction9 d2 = 0; d2 < 9; ++d2) {
-                state->tiles_per_player[i][neighs2[d2]] = state->tiles[neighs2[d2]];
-            }
         }
     }
-    
-    // send start signal and init data
     for (playerID i = 0; i < state->player_count; ++i) {
+        Tile* filtered_tiles = alloc_tiles(state->size);
+        Entity* filtered_entities = alloc_entities();
+        for (int x = 0; x < state->size.width; ++x) {
+            for (int y = 0; y < state->size.height; ++y) {
+                if (*fog_at(state->fog_per_player[i], state->size, x, y) == F_VISIBLE) {
+                    int neighbor_ids[9];
+                    neighbor_ids_9(state->size, x, y, neighbor_ids);
+                    for (Direction9 d = 0; d < 9; ++d) {
+                        filtered_tiles[neighbor_ids[d]] = state->tiles[neighbor_ids[d]];
+                    }
+                }
+            }
+        }
+        for (int j = 0; j < MAX_ENTITIES; ++j) {
+            Entity* e = &state->entities[j];
+            if (*fog_at(state->fog_per_player[i], state->size, e->x, e->y) == F_VISIBLE) {
+                filtered_entities[j] = state->entities[j];
+            }
+        }
+
         int fd = state->client_fds[i].fd;
         send_msg(fd, SM_GAME_STARTING, NULL, 0, 0);
         send_msg(fd, SM_INIT_MAPSIZE, &state->size, 1, sizeof(MapSize));
         send_msg(fd, SM_INIT_ENTITIES, state->entities, MAX_ENTITIES, sizeof(Entity));
         send_msg(fd, SM_INIT_GENS, state->gens, MAX_ENTITIES, sizeof(int));
-        send_msg(fd, SM_INIT_TILES, state->tiles_per_player[i], state->size.width*state->size.height, sizeof(Tile));
+        send_msg(fd, SM_INIT_TILES, filtered_tiles, state->size.width*state->size.height, sizeof(Tile));
         //send_msg(fd, SM_INIT_TILES, state->tiles, state->size.width*state->size.height, sizeof(Tile)); // DEBUG PURPOSES
         send_msg(fd, SM_INIT_FOG, state->fog_per_player[i], state->size.width*state->size.height, sizeof(Fog));
+
+        free_tiles(filtered_tiles);
+        free_entities(filtered_entities);
     }
 }
 
-static int try_move_unit(ServerState* state, CM_UnitMove move, playerID owner, SM_UpdateTile* tiles_out, int* tiles_out_count, SM_UpdateEntity* entities_out, int* entities_out_count, SM_UpdateFog* fog_out, int* fog_out_count) {
-    printf("try_move_unit: ref.id=%d ref.gen=%d\n", move.ref.id, move.ref.gen);
+void send_updates_to_player(ServerState* state, playerID id, 
+                            SM_UpdateTile* global_tile_updates, int global_tile_updates_count,
+                            SM_UpdateEntity* global_entity_updates, int global_entity_updates_count) 
+{
+    int total_tiles = state->size.width * state->size.height;
+    
+    Fog* working_fog = alloc_fog(state->size);
+    for (int i = 0; i < total_tiles; ++i) {
+        working_fog[i] = state->fog_per_player[id][i];
+        if (working_fog[i] == F_VISIBLE) {
+            working_fog[i] = F_FOGGY;
+        }
+    }
+    for (int i = 0; i < MAX_ENTITIES; ++i) {
+        Entity* e = &state->entities[i];
+        if (e->entity_type != E_NIL && e->owner == id) {
+            int neighbors[9][2];
+            neighbor_coords_9(state->size, e->x, e->y, neighbors);
+            for (Direction9 d = 0; d < 9; ++d) {
+                TileID t = tile_id_at(state->size, neighbors[d][0], neighbors[d][1]);
+                working_fog[t] = F_VISIBLE;
+            }
+        }
+    }
+
+    SM_UpdateFog* local_fog_updates = malloc(total_tiles * sizeof(SM_UpdateFog));
+    SM_UpdateTile* local_tile_updates = malloc((total_tiles*9 + global_tile_updates_count) * sizeof(SM_UpdateTile));
+    int fog_count = 0;
+    int tile_count = 0;
+    for (int y = 0; y < state->size.height; ++y) {
+        for (int x = 0; x < state->size.width; ++x) {
+            TileID t = tile_id_at(state->size, x, y);
+            Fog old_fog = state->fog_per_player[id][t];
+            Fog new_fog = working_fog[t];
+            if (old_fog != new_fog) {
+                state->fog_per_player[id][t] = new_fog;
+                local_fog_updates[fog_count++] = (SM_UpdateFog){x, y, new_fog};
+            }
+            if (new_fog == F_VISIBLE && old_fog != F_VISIBLE) {
+                int neighbor_coords[9][2];
+                neighbor_coords_9(state->size, x, y, neighbor_coords);
+                
+                for (Direction9 d = 0; d < 9; ++d) {
+                    int nx = neighbor_coords[d][0];
+                    int ny = neighbor_coords[d][1];
+                    TileID nt = tile_id_at(state->size, nx, ny);
+
+                    int already_added = 0;
+                    for (int j = 0; j < tile_count; ++j) {
+                        if (local_tile_updates[j].x == nx && local_tile_updates[j].y == ny) {
+                            already_added = 1;
+                            break;
+                        }
+                    }
+                    if (!already_added) {
+                        local_tile_updates[tile_count++] = (SM_UpdateTile){nx, ny, state->tiles[nt]};
+                    }
+                }
+            }
+        }
+    }
+    free_fog(working_fog);
+
+    for (int i = 0; i < global_tile_updates_count; ++i) {
+        TileID t = tile_id_at(state->size, global_tile_updates[i].x, global_tile_updates[i].y);
+        if (state->fog_per_player[id][t] == F_VISIBLE) {
+            local_tile_updates[tile_count++] = global_tile_updates[i];
+        }
+    }
+
+    SM_UpdateEntity* filtered_entities = malloc(global_entity_updates_count * sizeof(SM_UpdateEntity));
+    int filtered_entities_count = 0;
+    for (int i = 0; i < global_entity_updates_count; ++i) {
+        Entity* e = &state->entities[global_entity_updates[i].ref.id];
+        TileID t = tile_id_at(state->size, e->x, e->y);
+        if (state->fog_per_player[id][t] == F_VISIBLE) {
+            filtered_entities[filtered_entities_count++] = global_entity_updates[i];
+        }
+    }
+
+    if (tile_count > 0)
+        send_msg(state->client_fds[id].fd, SM_UPDATE_TILES, local_tile_updates, tile_count, sizeof(SM_UpdateTile));
+    if (filtered_entities_count > 0)
+        send_msg(state->client_fds[id].fd, SM_UPDATE_ENTITIES, filtered_entities, filtered_entities_count, sizeof(SM_UpdateEntity));
+    if (fog_count > 0)
+        send_msg(state->client_fds[id].fd, SM_UPDATE_FOG, local_fog_updates, fog_count, sizeof(SM_UpdateFog));
+
+    free(local_fog_updates);
+    free(local_tile_updates);
+    free(filtered_entities);
+}
+
+static int try_move_unit(ServerState* state, CM_UnitMove move, playerID owner, SM_UpdateEntity* entities_out, int* entities_out_count) {
     if (state->gens[move.ref.id] != move.ref.gen) return 0;
-    printf("x_from=%d y_from=%d x_to=%d y_to=%d\n", move.x_from, move.y_from, move.x_to, move.y_to);
+    if (state->entities[move.ref.id].owner != owner) return 0;
     if (move.x_from != state->entities[move.ref.id].x || move.y_from != state->entities[move.ref.id].y) return 0;
+    
     int possible_move_spots[8][2];
     neighbor_coords_8(state->size, move.x_from, move.y_from, possible_move_spots);
     for (Direction8 d = 0; d < 8; ++d) {
@@ -263,34 +356,6 @@ static int try_move_unit(ServerState* state, CM_UnitMove move, playerID owner, S
             state->entities[move.ref.id].x = move.x_to;
             state->entities[move.ref.id].y = move.y_to;
             entities_out[(*entities_out_count)++] = (SM_UpdateEntity){move.ref, state->entities[move.ref.id]};
-
-            int neigh9_from[9][2];
-            neighbor_coords_9(state->size, move.x_from, move.y_from, neigh9_from);
-            for (Direction9 d = 0; d < 9; ++d) {
-                int nx = neigh9_from[d][0];
-                int ny = neigh9_from[d][1];
-                Fog* f = fog_at(state->fog_per_player[owner], state->size, nx, ny);
-                *f = F_FOGGY;
-                fog_out[(*fog_out_count)++] = (SM_UpdateFog){nx, ny, *f};
-            }
-            int neigh9_to[9][2];
-            neighbor_coords_9(state->size, move.x_to, move.y_to, neigh9_to);
-            for (Direction9 d = 0; d < 9; ++d) {
-                int nx = neigh9_to[d][0];
-                int ny = neigh9_to[d][1];
-                Fog* f = fog_at(state->fog_per_player[owner], state->size, nx, ny);
-                *f = F_VISIBLE;
-                fog_out[(*fog_out_count)++] = (SM_UpdateFog){nx, ny, *f};
-
-                // need to decide if tiles store the entities that are on top of them
-                int neighbor_neighbors[9][2];
-                neighbor_coords_9(state->size, nx, ny, neighbor_neighbors);
-                for (Direction9 d2 = 0; d2 < 9; ++d2) {
-                    int nnx = neighbor_neighbors[d2][0];
-                    int nny = neighbor_neighbors[d2][1];
-                    tiles_out[(*tiles_out_count)++] = (SM_UpdateTile){nnx, nny, *tile_at(state->tiles, state->size, nnx, nny)};
-                }
-            }
             return 1;
         }
     }
@@ -331,12 +396,11 @@ static void handle_playing(ServerState* state) {
                     CM_UnitMove* moves = (CM_UnitMove*)in_msg.body;
                     for (int m = 0; m < in_msg.header.count; ++m) {
                         CM_UnitMove move = moves[m];
-                        try_move_unit(state, move, in_msg.from, tile_updates, &tile_updates_count, entity_updates, &entity_updates_count, fog_updates, &fog_updates_count);    
+                        try_move_unit(state, move, in_msg.from, entity_updates, &entity_updates_count);    
                     }
-                    
-                    if (tile_updates_count > 0) send_msg(state->client_fds[in_msg.from].fd, SM_UPDATE_TILES, tile_updates, tile_updates_count, sizeof(SM_UpdateTile));
-                    if (entity_updates_count > 0) send_msg(state->client_fds[in_msg.from].fd, SM_UPDATE_ENTITIES, entity_updates, entity_updates_count, sizeof(SM_UpdateEntity));
-                    if (fog_updates_count > 0) send_msg(state->client_fds[in_msg.from].fd, SM_UPDATE_FOG, fog_updates, fog_updates_count, sizeof(SM_UpdateFog));
+                    for (playerID id = 0; id < state->player_count; ++id) {
+                        send_updates_to_player(state, id, tile_updates, tile_updates_count, entity_updates, entity_updates_count); 
+                    }
                     free(tile_updates);
                     free(entity_updates);
                     free(fog_updates);

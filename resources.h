@@ -13,6 +13,12 @@
 #define OCEAN_CORNER_W 8
 #define OCEAN_CORNER_H 8
 
+enum FontAlignment {
+    FA_START,
+    FA_MIDDLE,
+    FA_END,
+};
+
 typedef struct {
     Texture2D texture;
     Rectangle portion;
@@ -35,7 +41,6 @@ void draw_tile(Tile* tiles, MapSize size, Tile* t, int x, int y, SpritesheetText
 void draw_entity(Entity* e, SpritesheetTextures* stextures);
 void draw_fog(Fog* f, int x, int y);
 
-// behavior 0: start. behavior 1: middle. behavior 2: end.
-void draw_text(Font font, float fontsize, float spacing, int x, int y, int x_behavior, int y_behavior, Color color, const char* format, ...) __attribute__((format(printf, 9, 10)));
+void draw_text(Font font, float fontsize, float spacing, int x, int y, enum FontAlignment x_behavior, enum FontAlignment y_behavior, Color color, const char* format, ...) __attribute__((format(printf, 9, 10)));
 
 #endif

@@ -49,9 +49,12 @@ typedef struct {
 
 typedef struct {
     enum Mode mode;
+    int window_w;
+    int window_h;
 
     struct sockaddr_in server_addr; // initialized by networking
     struct pollfd poll_fd[1];
+
 
     playerID my_player_id; // initialized by lobby
     int num_players_now;
@@ -191,7 +194,7 @@ static void handle_lobby(ClientState* state, TextureManager* tm) {
             }
         }
         if (state->got_mapsize && state->got_tiles && state->got_entities && state->got_gens && state->got_fog) {
-            printf("got initial data from server\n");
+            printf("Got initial data from server\n");
             tm->canvas_w = state->size.width * TILE_W;
             tm->canvas_h = state->size.height * TILE_H;
             init_tiles_canvas(state, tm);
@@ -200,11 +203,11 @@ static void handle_lobby(ClientState* state, TextureManager* tm) {
             tm->final_canvas = LoadRenderTexture(state->size.width*TILE_W, state->size.height*TILE_H);
             GenTextureMipmaps(&tm->final_canvas.texture);
             //SetTextureFilter(tm->final_canvas.texture, TEXTURE_FILTER_TRILINEAR);
-            tm->minimap = LoadRenderTexture(WINDOW_W/4.0, WINDOW_H/4.0);
+            tm->minimap = LoadRenderTexture(state->window_w/6.0, state->window_h/6.0);
             state->cam = (Camera2D){
                 .zoom = 1.0,
                 .target = (Vector2){tm->canvas_w/2.0, tm->canvas_h/2.0},
-                .offset = (Vector2){WINDOW_W/2.0, WINDOW_H/2.0},
+                .offset = (Vector2){state->window_w/2.0, state->window_h/2.0},
             };
             state->mode = PLAYING;
             return;
@@ -216,15 +219,14 @@ static void handle_lobby(ClientState* state, TextureManager* tm) {
     if (state->mode == LOBBY) {
         BeginDrawing();
         ClearBackground(WHITE);
-        draw_text(tm->font, 16.0, 2.0, WINDOW_W/2, WINDOW_H/2, 1, 1, BLACK, "Waiting for server to start game. \nPlayers: %d/%d", state->num_players_now, state->max_players);
+        draw_text(tm->font, 16.0, 2.0, state->window_w/2, state->window_h/2, FA_MIDDLE, FA_MIDDLE, BLACK, "Waiting for server to start game. \nPlayers: %d/%d", state->num_players_now, state->max_players);
         EndDrawing();
     } else if (state->mode == INIT) {
         BeginDrawing();
         ClearBackground(WHITE);
-        draw_text(tm->font, 16.0, 2.0, WINDOW_W/2, WINDOW_H/2, 1, 1, BLACK, "Loading...");
+        draw_text(tm->font, 16.0, 2.0, state->window_w/2, state->window_h/2, FA_MIDDLE, FA_MIDDLE, BLACK, "Loading...");
         EndDrawing();
     }
-    
 }
 
 static void update_tiles_canvas(const ClientState* state, SM_UpdateTile* updates, int count, TextureManager* tm) {
@@ -276,16 +278,6 @@ static void update_fog(ClientState* state, SM_UpdateFog* updates, int count) {
     for (int i = 0; i < count; ++i) {
         SM_UpdateFog update = updates[i];
         *fog_at(state->fog, state->size, update.x, update.y) = update.updated;
-    }
-    for (int i = 0; i < MAX_ENTITIES; ++i) {
-        Entity* e = &state->entities[i];
-        if (e->entity_type != E_NIL && e->owner == state->my_player_id) {
-            int neighbors[9][2];
-            neighbor_coords_9(state->size, e->x, e->y, neighbors);
-            for (Direction9 d = 0; d < 9; ++d) {
-                *fog_at(state->fog, state->size, neighbors[d][0], neighbors[d][1]) = F_VISIBLE;
-            }
-        }
     }
 }
 
@@ -440,8 +432,8 @@ static void handle_playing(ClientState* state, TextureManager* tm) {
     );
     float scale_x = (float)mini_w / tm->canvas_w;
     float scale_y = (float)mini_h / tm->canvas_h;
-    float view_w = (WINDOW_W / state->cam.zoom) * scale_x;
-    float view_h = (WINDOW_H / state->cam.zoom) * scale_y;
+    float view_w = (state->window_w / state->cam.zoom) * scale_x;
+    float view_h = (state->window_h / state->cam.zoom) * scale_y;
     float view_x = state->cam.target.x * scale_x - view_w/2.0f;
     float view_y = state->cam.target.y * scale_y - view_h/2.0f;
     DrawRectangleLines((int)view_x, (int)view_y, (int)view_w, (int)view_h, WHITE);
@@ -475,20 +467,23 @@ static void handle_playing(ClientState* state, TextureManager* tm) {
     DrawTexturePro(
         tm->minimap.texture,
         (Rectangle){0, 0, mini_w, -mini_h},
-        (Rectangle){0, 0, WINDOW_W/4.0, WINDOW_H/4.0},
+        (Rectangle){0, 0, state->window_w/6.0, state->window_h/6.0},
         (Vector2){0, 0}, 0.0f, WHITE
     );
-    draw_text(tm->font, 16.0, 2.0, WINDOW_W, 0, 2, 0, WHITE, "%d FPS", GetFPS());
+    draw_text(tm->font, 16.0, 2.0, state->window_w, 0, FA_END, FA_START, WHITE, "%d FPS", GetFPS());
     EndDrawing();
 }
 
 int main(void) {
     ClientState state = {0};
     state.mode = LOBBY;
+    state.window_w = WINDOW_W;
+    state.window_h = WINDOW_H;
 
     handle_networking(&state);
 
-    InitWindow(WINDOW_W, WINDOW_H, "Civ");
+    //SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    InitWindow(state.window_w, state.window_h, "Civ");
 
     TextureManager tm = {0};
     int codepoints[256];
@@ -504,6 +499,10 @@ int main(void) {
     
     SetTargetFPS(60);
     while (!WindowShouldClose()) {
+        if (IsWindowResized()) {
+            state.window_w = GetScreenWidth();
+            state.window_h = GetScreenHeight();
+        }
         switch (state.mode) {
             case LOBBY: case INIT: handle_lobby(&state, &tm); break;
             case PLAYING: handle_playing(&state, &tm); break;

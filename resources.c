@@ -148,8 +148,7 @@ void draw_fog(Fog* f, int x, int y) {
     DrawRectangle(x, y, 1, 1, c);
 }
 
-// behavior 0: start. behavior 1: middle. behavior 2: end.
-void draw_text(Font font, float fontsize, float spacing, int x, int y, int x_behavior, int y_behavior, Color color, const char* format, ...) {
+void draw_text(Font font, float fontsize, float spacing, int x, int y, enum FontAlignment x_behavior, enum FontAlignment y_behavior, Color color, const char* format, ...) {
     va_list args;
 
     va_start(args, format);
