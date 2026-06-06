@@ -11,7 +11,8 @@ typedef enum {
     SM_PLAYER_JOINED_LOBBY,
     SM_PLAYER_LEFT_LOBBY,
     SM_GAME_STARTING,
-    
+
+    SM_COLORS, // eventually the client should choose
     SM_MAPSIZE,
     SM_ENTITIES,
     SM_TILES,

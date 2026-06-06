@@ -13,6 +13,9 @@
 #define OCEAN_CORNER_W 8
 #define OCEAN_CORNER_H 8
 
+#define UNIT_REPLACE_COLOR (Vector4)ColorNormalize((Color){0x61, 0xe3, 0x65, 0xff})
+#define UNIT_REPLACE_COLOR_HIGHLIGHT (Vector4)ColorNormalize((Color){0x2c, 0x79, 0x00, 0xff})
+
 enum FontAlignment {
     FA_START,
     FA_MIDDLE,

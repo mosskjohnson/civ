@@ -3,9 +3,30 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
 #define MAX_ENTITIES 1024
 #define CONNECTIONS_PERMUTATIONS 16
+
+#define FOR_COLORS(DO) \
+    DO(0, CIVWHITE, 0xebebebff, 0x8a8a8eff) \
+    DO(1, CIVRED, 0xf75555ff, 0x822014ff) \
+    DO(2, CIVGREEN, 0x61e365ff, 0x2c7900ff) \
+    DO(3, CIVBLUE, 0x798effff, 0x304db2ff) \
+    DO(4, CIVYELLOW, 0xffff96ff, 0x61e365ff) \
+    DO(5, CIVTEAL, 0x0ce3ebff, 0x00aaaaff) \
+    DO(6, CIVPINK, 0xff55ffff, 0x822014ff) \
+    DO(7, CIVGRAY, 0x8a8a8eff, 0x4d4d4dff)
+
+#define DEFINE_ENUMERATION(id, name, ...) name = id,
+typedef enum {
+    FOR_COLORS(DEFINE_ENUMERATION)
+    CIVCOLOR_COUNT,
+} CivColor;
+#undef DEFINE_ENUMERATION
+
+unsigned int color_hex(CivColor c);
+unsigned int highlight_hex(CivColor c);
 
 typedef int playerID;
 typedef int EntityID;

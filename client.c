@@ -41,10 +41,15 @@ typedef struct {
     RenderTexture2D fog_canvas;
     RenderTexture2D final_canvas;
     RenderTexture2D minimap;
+    Texture2D noise_tex;
     Shader fog_shader;
     int fog_shader_time_loc;
     int fog_shader_noise_loc;
-    Texture2D noise_tex;
+    Shader unit_color_shader;
+    int unit_color_shader_co_loc;
+    int unit_color_shader_cho_loc;
+    int unit_color_shader_cn_loc;
+    int unit_color_shader_chn_loc;
 } TextureManager;
 
 typedef struct {
@@ -68,6 +73,7 @@ typedef struct {
     int got_entities;
     int got_tiles;
     int got_fog;
+    CivColor* colors;
     Camera2D cam;
 } ClientState;
 
@@ -124,7 +130,17 @@ static void update_entities_canvas(const ClientState* state, TextureManager* tm)
     ClearBackground((Color){0,0,0,0});
     for (EntityID i = 0; i < MAX_ENTITIES; ++i) {
         Entity* e = &state->entities[i];
-        draw_entity(e, &tm->stextures);
+        if (state->colors != NULL && e->entity_type == E_UNIT) {
+            BeginShaderMode(tm->unit_color_shader);
+            Vector4 cn = ColorNormalize(GetColor(color_hex(state->colors[e->owner])));
+            Vector4 chn = ColorNormalize(GetColor(highlight_hex(state->colors[e->owner])));
+            SetShaderValue(tm->unit_color_shader, tm->unit_color_shader_cn_loc, &cn, SHADER_UNIFORM_VEC4);
+            SetShaderValue(tm->unit_color_shader, tm->unit_color_shader_chn_loc, &chn, SHADER_UNIFORM_VEC4);
+            draw_entity(e, &tm->stextures);
+            EndShaderMode();
+        } else {
+            draw_entity(e, &tm->stextures);
+        }
     }
     EndTextureMode();
 }
@@ -222,6 +238,11 @@ static void handle_incoming_messages(ClientState* state, TextureManager* tm) {
                 free(fog_update);
                 
                 state->got_fog = 1;
+                break;
+            }
+            case SM_COLORS: {
+                state->colors = (CivColor*)body;
+                printf("My color: %d\n", state->colors[state->my_player_id]);
                 break;
             }
             case SM_GAME_STARTING: {
@@ -418,16 +439,29 @@ int main(void) {
     InitWindow(state.window_w, state.window_h, "Civ");
 
     TextureManager tm = {0};
+
     int codepoints[256];
     for (int i = 0; i < 256; ++i) codepoints[i] = i;
     tm.font = LoadFontEx("resources/fonts/civ0.ttf", 32, codepoints, 256);
+
     load_textures(&tm.stextures);
+
     tm.fog_shader = LoadShader(0, "resources/shaders/fog.fs");
     tm.fog_shader_time_loc = GetShaderLocation(tm.fog_shader, "time");
     tm.fog_shader_noise_loc = GetShaderLocation(tm.fog_shader, "noise");
     tm.noise_tex = LoadTexture("resources/images/noise32.png");
     SetTextureWrap(tm.noise_tex, TEXTURE_WRAP_REPEAT);
     SetShaderValueTexture(tm.fog_shader, tm.fog_shader_noise_loc, tm.noise_tex);
+
+    tm.unit_color_shader = LoadShader(0, "resources/shaders/unit_color.fs");
+    tm.unit_color_shader_co_loc = GetShaderLocation(tm.unit_color_shader, "color_old");
+    tm.unit_color_shader_cho_loc = GetShaderLocation(tm.unit_color_shader, "color_highlight_old");
+    tm.unit_color_shader_cn_loc = GetShaderLocation(tm.unit_color_shader, "color_new");
+    tm.unit_color_shader_chn_loc = GetShaderLocation(tm.unit_color_shader, "color_highlight_new");
+    Vector4 co = UNIT_REPLACE_COLOR;
+    Vector4 cho = UNIT_REPLACE_COLOR_HIGHLIGHT;
+    SetShaderValue(tm.unit_color_shader, tm.unit_color_shader_co_loc, &co, SHADER_UNIFORM_VEC4);
+    SetShaderValue(tm.unit_color_shader, tm.unit_color_shader_cho_loc, &cho, SHADER_UNIFORM_VEC4);
     
     SetTargetFPS(60);
     while (!WindowShouldClose()) {
@@ -448,6 +482,7 @@ int main(void) {
     free_entities(state.entities);
     free_tiles(state.tiles);
     free_fog(state.fog);
+    free(state.colors);
     
     unload_textures(&tm.stextures);
     UnloadRenderTexture(tm.tiles_canvas);

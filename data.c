@@ -5,6 +5,20 @@
 
 #include "data.h"
 
+#define GET_COLOR(id, name, color, ...) if (id==c) return color;
+unsigned int color_hex(CivColor c) {
+    FOR_COLORS(GET_COLOR)
+    assert(0 && "unknown civ color");
+}
+#undef GET_COLOR
+
+#define GET_HIGHLIGHT(id, name, color, highlight, ...) if (id==c) return highlight;
+unsigned int highlight_hex(CivColor c) {
+    FOR_COLORS(GET_HIGHLIGHT)
+    assert(0 && "unknown civ color");
+}
+#undef GET_HIGHLIGHT
+
 UnitTypeInfo unit_type_info[U_COUNT] = { // ORDER OF SPRITESHEET
     [U_SETTLER]    = {"settler",     0,  1,  1, 0, U_LAND | U_PEACEFUL | U_SETTLES,},
     [U_MILITIA]    = {"militia",     1,  1,  1, 0, U_LAND},

@@ -15,7 +15,7 @@
 #include "message.h"
 
 #define PORT 8080
-#define MAX_PLAYERS 5
+#define MAX_PLAYERS 8
 #define MAP_W 80
 #define MAP_H 50
 #define FAIR_START 1
@@ -34,7 +34,8 @@ typedef struct {
     struct pollfd client_fds[MAX_PLAYERS]; // initialized by lobby
     struct sockaddr_in client_addrs[MAX_PLAYERS]; // lobby
     int player_count; // lobby
-    
+
+    CivColor colors[MAX_PLAYERS];
     Entity* entities; // init
     Tile* tiles; // init
     Fog* fog_per_player[MAX_PLAYERS]; // init
@@ -230,6 +231,7 @@ static void handle_init(ServerState* state) {
 
         int fd = state->client_fds[i].fd;
         send_msg(fd, SM_MAPSIZE, &state->size, 1, sizeof(MapSize));
+        send_msg(fd, SM_COLORS, state->colors, MAX_PLAYERS, sizeof(CivColor));
         send_msg(fd, SM_ENTITIES, state->entities, MAX_ENTITIES, sizeof(Entity));
         send_msg(fd, SM_TILES, filtered_tiles, state->size.width*state->size.height, sizeof(Tile));
         //send_msg(fd, SM_TILES, state->tiles, state->size.width*state->size.height, sizeof(Tile)); // DEBUG PURPOSES
@@ -347,7 +349,7 @@ static void handle_playing(ServerState* state) {
 }
 
 int main(void) {
-
+    srand(time(NULL));
     // read parameters
     // TODO: for now, this is hard coded, later it will be based on argv
     MapSize size = {MAP_W, MAP_H};
@@ -359,6 +361,14 @@ int main(void) {
     ServerState state = {0};
     state.p = p;
     state.size = size;
+
+    // TODO: players should choose colors
+    int c = rand()%CIVCOLOR_COUNT;
+    for (int i = 0; i < CIVCOLOR_COUNT; ++i) {
+        int offsetted = (i + c) % CIVCOLOR_COUNT;
+        state.colors[i] = (CivColor)offsetted;
+        printf("Color%d: %d\n", i, offsetted);
+    }
 
     handle_networking(&state);
     handle_lobby(&state);
