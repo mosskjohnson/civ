@@ -8,6 +8,7 @@
 #define CONNECTIONS_PERMUTATIONS 16
 
 typedef int playerID;
+typedef int EntityID;
 typedef int TileID;
 
 typedef struct {
@@ -69,12 +70,6 @@ static const int DELTAS_R2[21][2] = {
     {-2, 1}, {-2, 0}, {-2,-1}, {-1,-2},
 };
 
-
-typedef struct {
-    int id;
-    int gen;
-} EntityRef;
-
 typedef enum {
     E_NIL,
     E_UNIT,
@@ -131,15 +126,16 @@ typedef enum {
 typedef struct {
     EntityType entity_type;
     playerID owner;
+    int gen;
     int x;
     int y;
-    EntityRef entity_on_next;
+    EntityID entity_on_next;
     union {
         struct { // UNIT
             UnitType unit_type;
             int movement_remaining;
-            EntityRef carrying_first;
-            EntityRef carrying_next;
+            EntityID carrying_first;
+            EntityID carrying_next;
         };
         struct { // CITY
             int population;
@@ -189,7 +185,7 @@ typedef struct {
     TileType type;
     Connections connections;
     Improvements improvements;
-    EntityRef entity_on_first;
+    EntityID entity_on_first;
 } Tile;
 
 typedef enum {

@@ -12,15 +12,11 @@ typedef enum {
     SM_PLAYER_LEFT_LOBBY,
     SM_GAME_STARTING,
     
-    SM_INIT_MAPSIZE,
-    SM_INIT_ENTITIES,
-    SM_INIT_GENS,
-    SM_INIT_TILES,
-    SM_INIT_FOG,
+    SM_MAPSIZE,
+    SM_ENTITIES,
+    SM_TILES,
+    SM_FOG,
 
-    SM_UPDATE_TILES,
-    SM_UPDATE_ENTITIES,
-    SM_UPDATE_FOG,
     // client to server
     CM_UNIT_MOVE,
 } MsgType;
@@ -48,24 +44,8 @@ typedef struct {
 } SM_PlayerLeftLobby;
 
 typedef struct {
-    int x;
-    int y;
-    Tile updated;
-} SM_UpdateTile;
-
-typedef struct {
-    EntityRef ref;
-    Entity updated;
-} SM_UpdateEntity;
-
-typedef struct {
-    int x;
-    int y;
-    Fog updated;
-} SM_UpdateFog;
-
-typedef struct {
-    EntityRef ref;
+    EntityID id;
+    int gen;
     int x_from;
     int y_from;
     int x_to;

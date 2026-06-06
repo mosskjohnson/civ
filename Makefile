@@ -52,7 +52,7 @@ worldgen.o: worldgen.c data.h
 message.o: message.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-view.o: view.c
+utils.o: utils.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:

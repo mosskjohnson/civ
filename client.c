@@ -24,7 +24,7 @@
 #define WINDOW_H 720
 #define MAX_KEYBOARD_KEYS 512
 
-enum Mode {LOBBY, INIT, PLAYING, END};
+enum Mode {LOBBY, PLAYING, END};
 
 typedef struct {
     float vis_x;
@@ -55,21 +55,18 @@ typedef struct {
     struct sockaddr_in server_addr; // initialized by networking
     struct pollfd poll_fd[1];
 
-
     playerID my_player_id; // initialized by lobby
     int num_players_now;
     int max_players;
     
     MapSize size; // initialized by init
     Entity* entities;
-    int* gens;
-    EntityRef active_unit;
+    EntityID active_unit;
     Tile* tiles;
     Fog* fog;
-    int got_mapsize;
-    int got_tiles;
+    int got_size;
     int got_entities;
-    int got_gens;
+    int got_tiles;
     int got_fog;
     Camera2D cam;
 } ClientState;
@@ -103,246 +100,171 @@ static void handle_networking(ClientState* state) {
     state->server_addr = server_addr;
 }
 
-static void init_tiles_canvas(ClientState* state, TextureManager* tm) {
-    tm->tiles_canvas = LoadRenderTexture(tm->canvas_w, tm->canvas_h);
+static void update_tiles_canvas(const ClientState* state, TextureManager* tm, Tile* tiles_update) {
     BeginTextureMode(tm->tiles_canvas);
-    ClearBackground((Color){0,0,0,0});
     for (int x = 0; x < state->size.width; ++x) {
         for (int y = 0; y < state->size.height; ++y) {
-            Tile* t = tile_at(state->tiles, state->size, x, y);
-            draw_tile(state->tiles, state->size, t, x, y, &tm->stextures);
-        }
-    }
-    EndTextureMode();    
-}
-static void init_entities_canvas(ClientState* state, TextureManager* tm) {
-    tm->entities_canvas = LoadRenderTexture(tm->canvas_w, tm->canvas_h);
-    BeginTextureMode(tm->entities_canvas);
-    ClearBackground((Color){0,0,0,0});
-    for (int i = 0; i < MAX_ENTITIES; ++i) {
-        Entity* e = &state->entities[i];
-        draw_entity(e, &tm->stextures);
-    }
-    EndTextureMode();
-}
-static void init_fog_canvas(ClientState* state, TextureManager* tm) {
-    tm->fog_canvas = LoadRenderTexture(state->size.width, state->size.height);
-    SetTextureFilter(tm->fog_canvas.texture, TEXTURE_FILTER_BILINEAR);
-    BeginTextureMode(tm->fog_canvas);
-    ClearBackground((Color){0,0,0,0});
-    for (int x = 0; x < state->size.width; ++x) {
-        for (int y = 0; y < state->size.height; ++y) {
-            Fog* f = fog_at(state->fog, state->size, x, y);
-            draw_fog(f, x, y);
-        }
-    }
-    EndTextureMode();
-}
-
-static void handle_lobby(ClientState* state, TextureManager* tm) {
-    (void)tm;
-    // receive
-    int fd = state->poll_fd[0].fd;
-    while (1) {
-        int r = poll(state->poll_fd, 1, 0);
-        if (r <= 0 || !(state->poll_fd[0].revents & POLLIN)) break;
-        MsgHeader header;
-        void* body;
-        if (recv_alloc_msg(fd, &header, &body) == 0) {
-           switch (header.type) {
-                case SM_WELCOME: {
-                    SM_Welcome* msgs = (SM_Welcome*)body;
-                    state->my_player_id = msgs[0].player_id;
-                    state->num_players_now = msgs[0].num_players_now;
-                    state->max_players = msgs[0].max_players;
+            Tile* old_tile = tile_at(state->tiles, state->size, x, y);
+            Tile* new_tile = tile_at(tiles_update, state->size, x, y);
+            int neighbors[9];
+            neighbor_ids_9(state->size, x, y, neighbors);
+            for (Direction9 d = 0; d < 9; ++d) {
+                Tile* neighbor_tile = &tiles_update[neighbors[d]];
+                if (memcmp(old_tile, neighbor_tile, sizeof(Tile)) != 0) { // only draw if neighbor changed
+                    draw_tile(tiles_update, state->size, new_tile, x, y, &tm->stextures);
                     break;
                 }
-                case SM_PLAYER_JOINED_LOBBY: {
-                    SM_PlayerJoinedLobby* msgs = (SM_PlayerJoinedLobby*)body;
-                    state->num_players_now = msgs[0].num_players_now;
-                    state->max_players = msgs[0].max_players;
-                    break;
-                }
-                case SM_INIT_MAPSIZE:
-                    state->size = *(MapSize*)body;
-                    state->got_mapsize = 1;
-                    free(body);
-                    break;
-                case SM_INIT_TILES:
-                    state->tiles = (Tile*)body;
-                    state->got_tiles = 1;
-                    break;
-                case SM_INIT_ENTITIES:
-                    state->entities = (Entity*)body;
-                    state->got_entities = 1;
-                    break;
-                case SM_INIT_GENS:
-                    state->gens = (int*)body;
-                    state->got_gens = 1;
-                    break;
-                case SM_INIT_FOG:
-                    state->fog = (Fog*)body;
-                    state->got_fog = 1;
-                    break;
-                case SM_GAME_STARTING:
-                    state->mode = INIT;
-                    free(body);
-                    break;
-                default:
-                    free(body);
-                    break;
             }
         }
-        if (state->got_mapsize && state->got_tiles && state->got_entities && state->got_gens && state->got_fog) {
-            printf("Got initial data from server\n");
-            tm->canvas_w = state->size.width * TILE_W;
-            tm->canvas_h = state->size.height * TILE_H;
-            init_tiles_canvas(state, tm);
-            init_entities_canvas(state, tm);
-            init_fog_canvas(state, tm);
-            tm->final_canvas = LoadRenderTexture(state->size.width*TILE_W, state->size.height*TILE_H);
-            GenTextureMipmaps(&tm->final_canvas.texture);
-            //SetTextureFilter(tm->final_canvas.texture, TEXTURE_FILTER_TRILINEAR);
-            tm->minimap = LoadRenderTexture(state->window_w/6.0, state->window_h/6.0);
-            state->cam = (Camera2D){
-                .zoom = 1.0,
-                .target = (Vector2){tm->canvas_w/2.0, tm->canvas_h/2.0},
-                .offset = (Vector2){state->window_w/2.0, state->window_h/2.0},
-            };
-            state->mode = PLAYING;
-            return;
-        }
-     }
-    // input
-    // send
-    // rendering
-    if (state->mode == LOBBY) {
-        BeginDrawing();
-        ClearBackground(WHITE);
-        draw_text(tm->font, 16.0, 2.0, state->window_w/2, state->window_h/2, FA_MIDDLE, FA_MIDDLE, BLACK, "Waiting for server to start game. \nPlayers: %d/%d", state->num_players_now, state->max_players);
-        EndDrawing();
-    } else if (state->mode == INIT) {
-        BeginDrawing();
-        ClearBackground(WHITE);
-        draw_text(tm->font, 16.0, 2.0, state->window_w/2, state->window_h/2, FA_MIDDLE, FA_MIDDLE, BLACK, "Loading...");
-        EndDrawing();
-    }
-}
-
-static void update_tiles_canvas(const ClientState* state, SM_UpdateTile* updates, int count, TextureManager* tm) {
-    BeginTextureMode(tm->tiles_canvas);
-    for (int i = 0; i < count; ++i) {
-        int x = updates[i].x;
-        int y = updates[i].y;
-        Tile* t = tile_at(state->tiles, state->size, x, y);
-        draw_tile(state->tiles, state->size, t, x, y, &tm->stextures);
     }
     EndTextureMode();
 }
 static void update_entities_canvas(const ClientState* state, TextureManager* tm) {
     BeginTextureMode(tm->entities_canvas);
     ClearBackground((Color){0,0,0,0});
-    for (int i = 0; i < MAX_ENTITIES; ++i) {
+    for (EntityID i = 0; i < MAX_ENTITIES; ++i) {
         Entity* e = &state->entities[i];
         draw_entity(e, &tm->stextures);
     }
     EndTextureMode();
 }
-static void update_fog_canvas(ClientState* state, SM_UpdateFog* updates, int count, TextureManager* tm) {
+static void update_fog_canvas(ClientState* state, TextureManager* tm, Fog* fog_update) {
     BeginTextureMode(tm->fog_canvas);
     rlSetBlendFactors(RL_ONE, RL_ZERO, RL_FUNC_ADD);
     BeginBlendMode(BLEND_CUSTOM);
-    for (int i = 0; i < count; ++i) {
-        int x = updates[i].x;
-        int y = updates[i].y;
-        Fog* f = fog_at(state->fog, state->size, x, y);
-        draw_fog(f, x, y);
+    for (int x = 0; x < state->size.width; ++x) {
+        for (int y = 0; y < state->size.height; ++y) {   
+            Fog* old_fog = fog_at(state->fog, state->size, x, y);
+            Fog* new_fog = fog_at(fog_update, state->size, x, y);
+            if (!state->got_fog || *old_fog != *new_fog) draw_fog(new_fog, x, y);
+        }
     }
     EndBlendMode();
     EndTextureMode();
 }
 
-static void update_tiles(ClientState* state, SM_UpdateTile* updates, int count) {
-    for (int i = 0; i < count; ++i) {
-        SM_UpdateTile update = updates[i];
-        *tile_at(state->tiles, state->size, update.x, update.y) = update.updated;
-    }
-}
-static void update_entities(ClientState* state, SM_UpdateEntity* updates, int count) {
-    for (int i = 0; i < count; ++i) {
-        SM_UpdateEntity update = updates[i];
-        state->entities[update.ref.id] = update.updated;
-    }
-}
-static void update_fog(ClientState* state, SM_UpdateFog* updates, int count) {
-    for (int i = 0; i < count; ++i) {
-        SM_UpdateFog update = updates[i];
-        *fog_at(state->fog, state->size, update.x, update.y) = update.updated;
-    }
-}
-
-static void handle_playing(ClientState* state, TextureManager* tm) {
-    // receive
-    SM_UpdateTile* tile_updates = malloc(state->size.width * state->size.height * sizeof(SM_UpdateTile));
-    SM_UpdateEntity* entity_updates = malloc(MAX_ENTITIES * sizeof(SM_UpdateEntity));
-    SM_UpdateFog* fog_updates = malloc(state->size.width * state->size.height * sizeof(SM_UpdateFog));
-    int tile_updates_count = 0, entity_updates_count = 0, fog_updates_count = 0;
+static void handle_incoming_messages(ClientState* state, TextureManager* tm) {
     while (1) {
         int r = poll(state->poll_fd, 1, 0);
         if (r <= 0 || !(state->poll_fd[0].revents & POLLIN)) break;
-        int fd = state->poll_fd[0].fd;
         MsgHeader header;
         void* body;
-        if (recv_alloc_msg(fd, &header, &body) < 0) {
+        if (recv_alloc_msg(state->poll_fd[0].fd, &header, &body) < 0) {
             printf("Server disconnected\n");
             state->mode = END;
             break;
         }
         switch (header.type) {
-            case SM_UPDATE_TILES: {
-                SM_UpdateTile* buf = (SM_UpdateTile*)body;
-                for (int i = 0; i < header.count; ++i) {
-                    tile_updates[tile_updates_count] = buf[i];
-                    tile_updates_count += 1;
-                }
+            case SM_WELCOME: {
+                SM_Welcome* msgs = (SM_Welcome*)body;
+                state->my_player_id = msgs[0].player_id;
+                state->num_players_now = msgs[0].num_players_now;
+                state->max_players = msgs[0].max_players;
                 break;
             }
-            case SM_UPDATE_ENTITIES: {
-                SM_UpdateEntity* buf = (SM_UpdateEntity*)body;
-                for (int i = 0; i < header.count; ++i) {
-                    entity_updates[entity_updates_count] = buf[i];
-                    entity_updates_count += 1;
-                }
+            case SM_PLAYER_JOINED_LOBBY: {
+                SM_PlayerJoinedLobby* msgs = (SM_PlayerJoinedLobby*)body;
+                state->num_players_now = msgs[0].num_players_now;
+                state->max_players = msgs[0].max_players;
                 break;
             }
-            case SM_UPDATE_FOG: {
-                SM_UpdateFog* buf = (SM_UpdateFog*)body;
-                for (int i = 0; i < header.count; ++i) {
-                    fog_updates[fog_updates_count] = buf[i];
-                    fog_updates_count += 1;
-                }
+            case SM_MAPSIZE: {
+                state->size = *(MapSize*)body;
+                free(body);
+                state->tiles = alloc_tiles(state->size);
+                state->entities = alloc_entities();
+                state->fog = alloc_fog(state->size);
+                tm->canvas_w = state->size.width * TILE_W;
+                tm->canvas_h = state->size.height * TILE_H;
+                
+                state->got_size = 1;
                 break;
             }
-            default: break;
+            case SM_TILES: {
+                Tile* tiles_update = (Tile*)body;
+
+                if (!state->got_tiles) {
+                    tm->tiles_canvas = LoadRenderTexture(tm->canvas_w, tm->canvas_h);
+                      BeginTextureMode(tm->tiles_canvas);
+                        ClearBackground((Color){0,0,0,0});
+                      EndTextureMode();
+                }
+                update_tiles_canvas(state, tm, tiles_update);
+                memcpy(state->tiles, tiles_update, state->size.width*state->size.height*sizeof(Tile));
+                free(tiles_update);
+                
+                state->got_tiles = 1;
+                break;
+            }
+            case SM_ENTITIES: {
+                Entity* entities_update = (Entity*)body;
+                memcpy(state->entities, entities_update, MAX_ENTITIES*sizeof(Entity));
+                if (!state->got_entities) {
+                    tm->entities_canvas = LoadRenderTexture(tm->canvas_w, tm->canvas_h);
+                }
+                update_entities_canvas(state, tm);
+                free(entities_update);
+                
+                state->got_entities = 1;
+                break;
+            }
+            case SM_FOG: {
+                Fog* fog_update = (Fog*)body; 
+                if (!state->got_fog) {
+                    tm->fog_canvas = LoadRenderTexture(state->size.width, state->size.height);
+                      SetTextureFilter(tm->fog_canvas.texture, TEXTURE_FILTER_BILINEAR);
+                      BeginTextureMode(tm->fog_canvas);
+                        ClearBackground((Color){0,0,0,0});
+                      EndTextureMode();
+                }
+                update_fog_canvas(state, tm, fog_update);
+                memcpy(state->fog, fog_update, state->size.width*state->size.height*sizeof(Fog));
+                free(fog_update);
+                
+                state->got_fog = 1;
+                break;
+            }
+            case SM_GAME_STARTING: {
+                if (!(state->got_size && state->got_tiles && state->got_entities && state->got_fog)) {
+                    fprintf(stderr, "ERROR: Got game starting message before getting all initial data from server\n");
+                    state->mode = END;
+                    return;
+                }
+                tm->final_canvas = LoadRenderTexture(state->size.width*TILE_W, state->size.height*TILE_H);
+                  GenTextureMipmaps(&tm->final_canvas.texture);
+                  //SetTextureFilter(tm->final_canvas.texture, TEXTURE_FILTER_TRILINEAR);
+                tm->minimap = LoadRenderTexture(state->window_w/6.0, state->window_h/6.0);
+                state->cam = (Camera2D){
+                    .zoom = 1.0,
+                    .target = (Vector2){tm->canvas_w/2.0, tm->canvas_h/2.0},
+                    .offset = (Vector2){state->window_w/2.0, state->window_h/2.0},
+                };
+                state->mode = PLAYING;
+                free(body);
+                break;
+            }
+            default: free(body); break;
         }
-        free(body);
-    }    
-    // update
-    update_tiles(state, tile_updates, tile_updates_count);
-    update_tiles_canvas(state, tile_updates, tile_updates_count, tm);
-    update_entities(state, entity_updates, entity_updates_count);
-    update_entities_canvas(state, tm);
-    update_fog(state, fog_updates, fog_updates_count);
-    update_fog_canvas(state, fog_updates, fog_updates_count, tm);
-    free(tile_updates);
-    free(entity_updates);
-    free(fog_updates);
+    }
+}
+
+static void handle_lobby(ClientState* state, TextureManager* tm) {
     // input
-    if (state->active_unit.id == 0) {
+    // send
+    // rendering
+    (void)tm;
+    BeginDrawing();
+    ClearBackground(WHITE);
+    draw_text(tm->font, 16.0, 2.0, state->window_w/2, state->window_h/2, FA_MIDDLE, FA_MIDDLE, BLACK, "Waiting for server to start game. \nPlayers: %d/%d", state->num_players_now, state->max_players);
+    EndDrawing();
+}
+
+static void handle_playing(ClientState* state, TextureManager* tm) {
+    // input
+    if (state->active_unit == 0) {
         for (int i = 1; i < MAX_ENTITIES; ++i) {
             if (state->entities[i].owner == state->my_player_id && state->entities[i].entity_type == E_UNIT) {
-                state->active_unit.id = i;
-                state->active_unit.gen = state->gens[i];
+                state->active_unit = i;
             }
         }
     }
@@ -363,12 +285,13 @@ static void handle_playing(ClientState* state, TextureManager* tm) {
         state->cam.target.x -= delta.x / state->cam.zoom;
         state->cam.target.y -= delta.y / state->cam.zoom;
     }
-    float half_screen_h = (WINDOW_H / 2.0f) / state->cam.zoom;
+    float half_screen_h = (state->window_h / 2.0f) / state->cam.zoom;
     state->cam.target.y = CLAMP(state->cam.target.y, half_screen_h, tm->canvas_h - half_screen_h);
     float canvas_w = tm->canvas_w;
     state->cam.target.x = fmodf(state->cam.target.x, canvas_w);
     if (state->cam.target.x < 0) state->cam.target.x += canvas_w;
-    
+
+    // moves
     CM_UnitMove* unit_moves = malloc(MAX_ENTITIES * sizeof(CM_UnitMove));
     int unit_moves_count = 0;
     
@@ -380,18 +303,22 @@ static void handle_playing(ClientState* state, TextureManager* tm) {
     }
     for (int dk = 0; dk < 8; ++dk) {
         if (last_key_pressed == direction_keys[dk]) {
-            int x_from = state->entities[state->active_unit.id].x;
-            int y_from = state->entities[state->active_unit.id].y;
+            int id = state->active_unit;
+            int gen = state->entities[id].gen;
+            int x_from = state->entities[state->active_unit].x;
+            int y_from = state->entities[state->active_unit].y;
             int x_to = wrapped_x(state->size, x_from + DELTAS_8[dk][0]);
             int y_to = wrapped_y(state->size, y_from + DELTAS_8[dk][1]);
-            unit_moves[unit_moves_count++] = (CM_UnitMove){state->active_unit, x_from, y_from, x_to, y_to};
+            unit_moves[unit_moves_count++] = (CM_UnitMove){id, gen, x_from, y_from, x_to, y_to};
         }
     }
+    
     // send
     if (unit_moves_count > 0) {
         send_msg(state->poll_fd[0].fd, CM_UNIT_MOVE, unit_moves, unit_moves_count, sizeof(CM_UnitMove));
     }
     free(unit_moves);
+    
     // rendering
     float f = GetTime();
     SetShaderValue(tm->fog_shader, tm->fog_shader_time_loc, &f, SHADER_UNIFORM_FLOAT);
@@ -449,20 +376,25 @@ static void handle_playing(ClientState* state, TextureManager* tm) {
         (Rectangle){0, 0, tm->canvas_w, tm->canvas_h},
         (Vector2){0, 0}, 0.0f, WHITE
     );
+    float half_screen_w = (state->window_w / 2.0f) / state->cam.zoom;
     // wrap left
-    DrawTexturePro(
-        tm->final_canvas.texture,
-        (Rectangle){0, 0, tm->canvas_w, -tm->canvas_h},
-        (Rectangle){-tm->canvas_w, 0, tm->canvas_w, tm->canvas_h},
-        (Vector2){0, 0}, 0.0f, WHITE
-    );
+    if (state->cam.target.x - half_screen_w < 0) {
+        DrawTexturePro(
+            tm->final_canvas.texture,
+            (Rectangle){0, 0, tm->canvas_w, -tm->canvas_h},
+            (Rectangle){-tm->canvas_w, 0, tm->canvas_w, tm->canvas_h},
+            (Vector2){0, 0}, 0.0f, WHITE
+        );
+    }
     // wrap right
-    DrawTexturePro(
-        tm->final_canvas.texture,
-        (Rectangle){0, 0, tm->canvas_w, -tm->canvas_h},
-        (Rectangle){tm->canvas_w, 0, tm->canvas_w, tm->canvas_h},
-        (Vector2){0, 0}, 0.0f, WHITE
-    );
+    if (state->cam.target.x + half_screen_w > tm->canvas_w) {
+        DrawTexturePro(
+            tm->final_canvas.texture,
+            (Rectangle){0, 0, tm->canvas_w, -tm->canvas_h},
+            (Rectangle){tm->canvas_w, 0, tm->canvas_w, tm->canvas_h},
+            (Vector2){0, 0}, 0.0f, WHITE
+        );
+    }
     EndMode2D();
     DrawTexturePro(
         tm->minimap.texture,
@@ -503,8 +435,9 @@ int main(void) {
             state.window_w = GetScreenWidth();
             state.window_h = GetScreenHeight();
         }
+        handle_incoming_messages(&state, &tm);
         switch (state.mode) {
-            case LOBBY: case INIT: handle_lobby(&state, &tm); break;
+            case LOBBY: handle_lobby(&state, &tm); break;
             case PLAYING: handle_playing(&state, &tm); break;
             case END: goto cleanup;
         }        

@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <stdint.h>
 
 #include "data.h"
 
@@ -66,17 +67,14 @@ void free_entities(Entity* entities) {
     free(entities);
 }
 
-static void add_entity(Entity* entities, Entity* e, int slot) {
-    entities[slot] = *e;
-}
-
-static void rem_entity(Entity* entities, EntityRef ref) {
-    // TODO: add generations
-    memset(&entities[ref.id], 0, sizeof(Entity));
+static void rem_entity(Entity* entities, EntityID id) {
+    int gen = entities[id].gen + 1;
+    memset(&entities[id], 0, sizeof(Entity));
+    entities[id].gen = gen;
 }
 
 void new_unit(Entity* entities, playerID owner, int x, int y, UnitType unit_type) {
-    for (int i = 1; i < MAX_ENTITIES; ++i) {
+    for (EntityID i = 1; i < MAX_ENTITIES; ++i) {
         if (entities[i].entity_type == E_NIL) {
             Entity* e = &entities[i];
             e->entity_type = E_UNIT;
