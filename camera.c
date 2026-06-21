@@ -3,7 +3,7 @@
 #include "utils.h"
 #include "camera.h"
 
-static void clamp_camera(Camera2D* c, CameraSizeInfo csi) {
+void clamp_camera(Camera2D* c, CameraSizeInfo csi) {
     float half_camera_h = (csi.window_h / 2.0f) / c->zoom;
     c->target.y = CLAMP(c->target.y, half_camera_h, csi.canvas_h - half_camera_h);
     

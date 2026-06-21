@@ -2,9 +2,9 @@
 #include <string.h>
 #include <assert.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <math.h>
 #include "utils.h"
-
 #include "data.h"
 
 #define GET_COLOR(id, name, color, ...) if (id==c) return color;
@@ -160,12 +160,12 @@ void move_unit(Entity* entities, Tile* tiles, MapSize size, EntityID i, int x_to
     entangle(entities, tiles, i, t_to);
 }
 
-static int battle_math(float a, float b) {
-    float t = 1.0 / 1+expf(-BATTLE_CURVE_SHARPNESS*(a-b));
+static int battle_math(float a, float d) {
+    float t = 1.0 / (1+expf(-BATTLE_CURVE_SHARPNESS*(a-d)));
     return FRAND() < t;
 }
 
-// returns 0 for attacker win and 1 for defender win
+// returns 1 for attacker win and 0 for defender win
 int battle(Entity* attacker, Entity* defender, Tile* tiles) {
 
     float attack_base = (float)unit_type_info[attacker->unit_type].attack;
@@ -180,6 +180,7 @@ int battle(Entity* attacker, Entity* defender, Tile* tiles) {
 
     float attack_final = attack_base * (1 + attack_bonus);
     float defense_final = defense_base * (1 + defense_bonus);
+    printf("a: %f, d: %f\n", attack_final, defense_final);
     return battle_math(attack_final, defense_final);
 }
 

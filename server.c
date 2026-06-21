@@ -289,8 +289,8 @@ static int try_move_unit(ServerState* state, CM_UnitMove move, playerID owner) {
     if (t->entity_on_first == 0 || other->owner == e->owner) {
         move_unit(state->entities, state->tiles, state->size, move.id, move.x_to, move.y_to);
     } else {
-        int res = battle(e, other, state->tiles);
-        printf("Battle, %s won\n", res ? "defender" : "attacker");
+        int res = battle(e, other, state->tiles); 
+        printf("Battle, %s wins\n", res ? "attacker" : "defender");
     }
 
     // recalculate fog

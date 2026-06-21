@@ -13,7 +13,7 @@ typedef struct {
     int canvas_h;
 } CameraSizeInfo;
 
-static void clamp_camera(Camera2D* c, CameraSizeInfo csi);
+void clamp_camera(Camera2D* c, CameraSizeInfo csi);
 void zoom_on_anchor(Camera2D* c, CameraSizeInfo csi, float zoom_factor, Vector2 anchor);
 void pan(Camera2D* c, CameraSizeInfo csi, int x, int y);
 

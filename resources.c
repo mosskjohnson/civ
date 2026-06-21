@@ -124,18 +124,23 @@ void draw_tile(Tile* tiles, MapSize size, Tile* t, int x, int y, SpritesheetText
 }
 
 void draw_entity(Entity* e, SpritesheetTextures* stextures) {
-    if (e->entity_type == E_NIL) return;
-    if (e->entity_type == E_UNIT) {
-        TexturePortion tp = stextures->units[e->unit_type];
-        //DrawRectangle(e->x*TILE_W, e->y*TILE_H, UNIT_W, UNIT_H, RED);
-        DrawTexturePro(
-            tp.texture,
-            tp.portion,
-            (Rectangle){e->x*TILE_W, e->y*TILE_H, UNIT_W, UNIT_H},
-            (Vector2){0.0,0.0},
-            0.0,
-            WHITE
-        );
+    switch (e->entity_type) {
+        case E_NIL: return;
+        case E_UNIT:
+            TexturePortion tp = stextures->units[e->unit_type];
+            //DrawRectangle(e->x*TILE_W, e->y*TILE_H, UNIT_W, UNIT_H, RED);
+            DrawTexturePro(
+                tp.texture,
+                tp.portion,
+                (Rectangle){e->x*TILE_W, e->y*TILE_H, UNIT_W, UNIT_H},
+                (Vector2){0.0,0.0},
+                0.0,
+                WHITE
+            );
+            break;
+        case E_CITY:
+            assert(0 && "todo");
+            break;
     }
 }
 

@@ -5,7 +5,7 @@
 
 #define CLAMP(x, lo, hi) (((x) < (lo)) ? (lo) : (((x) > (hi)) ? (hi) : (x)))
 
-#define FRAND() ((float)rand() / RAND_MAX)
+#define FRAND() (rand() / (float)RAND_MAX)
 
 void mem_or(const void* restrict src, void* restrict dest, size_t bytes_size);
 

@@ -147,35 +147,35 @@ static void update_fog_canvas(ClientState* state, TextureManager* tm, Fog* fog_u
 static void draw_entities_onto_canvas(const ClientState* state, TextureManager* tm) {
     BeginTextureMode(tm->entities_canvas);
     ClearBackground((Color){0,0,0,0});
+    BeginShaderMode(tm->unit_color_shader);
 
-    int use_unit_color_shader = (state->colors != NULL);
-    if (use_unit_color_shader) {
-        BeginShaderMode(tm->unit_color_shader);
-    }
+    assert(state->colors != NULL);
+
     for (int i = 0; i < MAX_ENTITIES; ++i) {
         Entity* e = &state->entities[i];
         if (e->entity_type == E_NIL || i == state->active_unit) continue;
-        if (use_unit_color_shader && e->entity_type == E_UNIT) {
-            Vector4 cn = ColorNormalize(GetColor(color_hex(state->colors[e->owner])));
-            Vector4 chn = ColorNormalize(GetColor(highlight_hex(state->colors[e->owner])));
-            SetShaderValue(tm->unit_color_shader, tm->unit_color_shader_cn_loc, &cn, SHADER_UNIFORM_VEC4);
-            SetShaderValue(tm->unit_color_shader, tm->unit_color_shader_chn_loc, &chn, SHADER_UNIFORM_VEC4);
-        }
+
+        rlDrawRenderBatchActive();
+        Vector4 cn = ColorNormalize(GetColor(color_hex(state->colors[e->owner])));
+        Vector4 chn = ColorNormalize(GetColor(highlight_hex(state->colors[e->owner])));
+        SetShaderValue(tm->unit_color_shader, tm->unit_color_shader_cn_loc, &cn, SHADER_UNIFORM_VEC4);
+        SetShaderValue(tm->unit_color_shader, tm->unit_color_shader_chn_loc, &chn, SHADER_UNIFORM_VEC4);
+
         draw_entity(e, &tm->stextures);
     }
+
     Entity* active = &state->entities[state->active_unit];
     if (fmodf(GetTime(), 1.3) >= 0.3) { // blink
-        if (use_unit_color_shader && active->entity_type == E_UNIT) {
-            Vector4 cn = ColorNormalize(GetColor(color_hex(state->colors[active->owner])));
-            Vector4 chn = ColorNormalize(GetColor(highlight_hex(state->colors[active->owner])));
-            SetShaderValue(tm->unit_color_shader, tm->unit_color_shader_cn_loc, &cn, SHADER_UNIFORM_VEC4);
-            SetShaderValue(tm->unit_color_shader, tm->unit_color_shader_chn_loc, &chn, SHADER_UNIFORM_VEC4);
-        }
+        rlDrawRenderBatchActive();
+        Vector4 cn = ColorNormalize(GetColor(color_hex(state->colors[state->my_player_id])));
+        Vector4 chn = ColorNormalize(GetColor(highlight_hex(state->colors[state->my_player_id])));
+        SetShaderValue(tm->unit_color_shader, tm->unit_color_shader_cn_loc, &cn, SHADER_UNIFORM_VEC4);
+        SetShaderValue(tm->unit_color_shader, tm->unit_color_shader_chn_loc, &chn, SHADER_UNIFORM_VEC4);
+
         draw_entity(active, &tm->stextures);
     }
-    if (use_unit_color_shader) {
-        EndShaderMode();
-    }
+
+    EndShaderMode();
     EndTextureMode();
 }
 
