@@ -303,7 +303,7 @@ static void handle_lobby(ClientState* state, TextureManager* tm) {
 }
 
 static void handle_playing(ClientState* state, TextureManager* tm) {
-    if (state->active_unit == 0) {
+    if (state->active_unit == 0 || state->entities[state->active_unit].entity_type == E_NIL) {
         for (EntityID i = 1; i < MAX_ENTITIES; ++i) {
             if (state->entities[i].owner == state->my_player_id && state->entities[i].entity_type == E_UNIT) {
                 state->active_unit = i;

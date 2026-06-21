@@ -263,8 +263,27 @@ static void send_updates(ServerState* state, playerID id) {
     free_tiles(filtered_tiles);
 }
 
+static void recalculate_fog(ServerState* state, playerID id) {
+    for (TileID i = 0; i < state->size.width*state->size.height; ++i) { // set to foggy initially
+        if (state->fog_per_player[id][i] == F_VISIBLE) {
+            state->fog_per_player[id][i] = F_FOGGY;
+        }
+    }
+    for (int i = 0; i < MAX_ENTITIES; ++i) { // overwrite with visible
+        Entity* e = &state->entities[i];
+        if (e->entity_type != E_NIL && e->owner == id) {
+            int neighbor[9][2];
+            neighbor_coords_9(state->size, e->x, e->y, neighbor);
+            for (Direction9 d = 0; d < 9; ++d) {
+                *fog_at(state->fog_per_player[id], state->size, neighbor[d][0], neighbor[d][1]) = F_VISIBLE;
+            }
+        }
+    }
+}
+
 static int try_move_unit(ServerState* state, CM_UnitMove move, playerID owner) {
-    Entity* e = &state->entities[move.id];
+    EntityID e_id = move.id;
+    Entity* e = &state->entities[e_id];
     
     if (move.gen != e->gen) return 0;
     if (owner != e->owner) return 0;
@@ -285,31 +304,20 @@ static int try_move_unit(ServerState* state, CM_UnitMove move, playerID owner) {
     if (has_traits(e, U_LAND) && t->type == T_OCEAN) return 0;
     if (has_traits(e, U_WATER) && t->type != T_OCEAN) return 0;
 
-    Entity* other = &state->entities[t->entity_on_first];
-    if (t->entity_on_first == 0 || other->owner == e->owner) {
-        move_unit(state->entities, state->tiles, state->size, move.id, move.x_to, move.y_to);
+    EntityID other_id = t->entity_on_first;
+    Entity* other = &state->entities[other_id];
+    if (other_id == 0 || other->owner == e->owner) {
+        move_unit(state->entities, state->tiles, state->size, e_id, move.x_to, move.y_to);
     } else {
-        int res = battle(e, other, state->tiles); 
-        printf("Battle, %s wins\n", res ? "attacker" : "defender");
+        int win = battle(e, other, state->tiles);
+        printf("Battle, %s wins\n", win ? "attacker" : "defender");
+        
+        if (win) rem_unit(state->entities, state->tiles, other_id);
+        else rem_unit(state->entities, state->tiles, e_id);
     }
 
-    // recalculate fog
-    for (TileID i = 0; i < state->size.width*state->size.height; ++i) { // set to foggy initially
-        if (state->fog_per_player[owner][i] == F_VISIBLE) {
-            state->fog_per_player[owner][i] = F_FOGGY;
-        }
-    }
-    for (int i = 0; i < MAX_ENTITIES; ++i) { // overwrite with visible
-        Entity* e = &state->entities[i];
-        if (e->entity_type != E_NIL && e->owner == owner) {
-            int neighbor[9][2];
-            neighbor_coords_9(state->size, e->x, e->y, neighbor);
-            for (Direction9 d = 0; d < 9; ++d) {
-                *fog_at(state->fog_per_player[owner], state->size, neighbor[d][0], neighbor[d][1]) = F_VISIBLE;
-            }
-        }
-    }
-
+    recalculate_fog(state, owner);
+    
     return 1;
 }
 
