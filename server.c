@@ -21,8 +21,6 @@
 #define FAIR_START 1
 #define PLAYER_START_ZONE_SIZE 15
 
-#define frand() (float)rand() / MAX_RAND
-
 typedef int playerID;
 
 typedef struct {
@@ -57,8 +55,8 @@ static void handle_networking(ServerState* state) {
     addr.sin_addr.s_addr = INADDR_ANY;
     addr.sin_port = htons(PORT);
 
-    int opt = 1;
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    int reuse = 1;
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
 
     if (bind(server_fd, (struct sockaddr *)&addr, (socklen_t)sizeof(addr)) < 0) {
         perror("SERVER: Bind failed");
@@ -177,6 +175,26 @@ static void fair_player_start_positions(ServerState* state, int out[MAX_PLAYERS]
     free(cand_ys);
 }
 
+static void calculate_filtered_view(ServerState* state, playerID id, Entity* filtered_entities_out, Tile* filtered_tiles_out) {
+    for (int i = 0; i < MAX_ENTITIES; ++i) {
+        Entity* e = &state->entities[i];
+        if (e->owner == id || (*fog_at(state->fog_per_player[id], state->size, e->x, e->y) == F_VISIBLE)) {
+            filtered_entities_out[i] = *e;
+        }
+    }
+    for (int x = 0; x < state->size.width; ++x) {
+        for (int y = 0; y < state->size.height; ++y) {
+            if (*fog_at(state->fog_per_player[id], state->size, x, y) != F_UNDISCOVERED) {
+                int neighbor_ids[9];
+                neighbor_ids_9(state->size, x, y, neighbor_ids);
+                for (Direction9 d = 0; d < 9; ++d) {
+                    filtered_tiles_out[neighbor_ids[d]] = state->tiles[neighbor_ids[d]];
+                }
+            }
+        }
+    }
+}
+
 static void handle_init(ServerState* state) {
     state->entities = alloc_entities();
     state->tiles = alloc_tiles(state->size);
@@ -186,8 +204,8 @@ static void handle_init(ServerState* state) {
     }
     // generate world
     GenCell* gen_world = alloc_world(state->p);
-        generate_world(gen_world, state->p);
-        to_tiles(gen_world, state->tiles, state->size);
+      generate_world(gen_world, state->p);
+      to_tiles(gen_world, state->tiles, state->size);
     free_world(gen_world);
     // player start positions
     int start_coords[MAX_PLAYERS][2];
@@ -197,8 +215,9 @@ static void handle_init(ServerState* state) {
     for (playerID i = 0; i < state->player_count; ++i) {
         int x = start_coords[i][0];
         int y = start_coords[i][1];
-        new_unit(state->entities, i, x, y, U_SETTLER);
-        new_unit(state->entities, i, x, y, U_MILITIA);
+        new_unit(state->entities, state->tiles, state->size, i, x, y, U_SETTLER);
+        new_unit(state->entities, state->tiles, state->size, i, x, y, U_MILITIA);
+        new_unit(state->entities, state->tiles, state->size, i, x, y, U_CHARIOT);
         
         int neighbor_coords[9][2];
         neighbor_coords_9(state->size, x, y, neighbor_coords);
@@ -209,32 +228,17 @@ static void handle_init(ServerState* state) {
         }
     }
     for (playerID i = 0; i < state->player_count; ++i) {
-        Tile* filtered_tiles = alloc_tiles(state->size);
         Entity* filtered_entities = alloc_entities();
-        for (int x = 0; x < state->size.width; ++x) {
-            for (int y = 0; y < state->size.height; ++y) {
-                if (*fog_at(state->fog_per_player[i], state->size, x, y) == F_VISIBLE) {
-                    int neighbor_ids[9];
-                    neighbor_ids_9(state->size, x, y, neighbor_ids);
-                    for (Direction9 d = 0; d < 9; ++d) {
-                        filtered_tiles[neighbor_ids[d]] = state->tiles[neighbor_ids[d]];
-                    }
-                }
-            }
-        }
-        for (int j = 0; j < MAX_ENTITIES; ++j) {
-            Entity* e = &state->entities[j];
-            if (*fog_at(state->fog_per_player[i], state->size, e->x, e->y) == F_VISIBLE) {
-                filtered_entities[j] = state->entities[j];
-            }
-        }
+        Tile* filtered_tiles = alloc_tiles(state->size);
+
+        calculate_filtered_view(state, i, filtered_entities, filtered_tiles);
 
         int fd = state->client_fds[i].fd;
         send_msg(fd, SM_MAPSIZE, &state->size, 1, sizeof(MapSize));
         send_msg(fd, SM_COLORS, state->colors, MAX_PLAYERS, sizeof(CivColor));
         send_msg(fd, SM_ENTITIES, state->entities, MAX_ENTITIES, sizeof(Entity));
-        send_msg(fd, SM_TILES, filtered_tiles, state->size.width*state->size.height, sizeof(Tile));
-        //send_msg(fd, SM_TILES, state->tiles, state->size.width*state->size.height, sizeof(Tile)); // DEBUG PURPOSES
+        //send_msg(fd, SM_TILES, filtered_tiles, state->size.width*state->size.height, sizeof(Tile));
+        send_msg(fd, SM_TILES, state->tiles, state->size.width*state->size.height, sizeof(Tile)); // DEBUG PURPOSES
         send_msg(fd, SM_FOG, state->fog_per_player[i], state->size.width*state->size.height, sizeof(Fog));
         
         send_msg(fd, SM_GAME_STARTING, NULL, 0, 0);
@@ -248,23 +252,7 @@ static void send_updates(ServerState* state, playerID id) {
     Entity* filtered_entities = alloc_entities();
     Tile* filtered_tiles = alloc_tiles(state->size);
 
-    for (int i = 0; i < MAX_ENTITIES; ++i) {
-        Entity* e = &state->entities[i];
-        if (e->owner == id || (*fog_at(state->fog_per_player[id], state->size, e->x, e->y) == F_VISIBLE)) {
-            filtered_entities[i] = *e;
-        }
-    }
-    for (int x = 0; x < state->size.width; ++x) {
-        for (int y = 0; y < state->size.height; ++y) {
-            if (*fog_at(state->fog_per_player[id], state->size, x, y) != F_UNDISCOVERED) {
-                int neighbor_ids[9];
-                neighbor_ids_9(state->size, x, y, neighbor_ids);
-                for (Direction9 d = 0; d < 9; ++d) {
-                    filtered_tiles[neighbor_ids[d]] = state->tiles[neighbor_ids[d]];
-                }
-            }
-        }
-    }
+    calculate_filtered_view(state, id, filtered_entities, filtered_tiles);
     
     int fd = state->client_fds[id].fd;
     send_msg(fd, SM_ENTITIES, filtered_entities, MAX_ENTITIES, sizeof(Entity));
@@ -276,39 +264,53 @@ static void send_updates(ServerState* state, playerID id) {
 }
 
 static int try_move_unit(ServerState* state, CM_UnitMove move, playerID owner) {
-    if (state->entities[move.id].gen != move.gen) return 0;
-    if (state->entities[move.id].owner != owner) return 0;
-    if (move.x_from != state->entities[move.id].x || move.y_from != state->entities[move.id].y) return 0;
+    Entity* e = &state->entities[move.id];
     
-    int possible_move_spots[8][2];
-    neighbor_coords_8(state->size, move.x_from, move.y_from, possible_move_spots);
+    if (move.gen != e->gen) return 0;
+    if (owner != e->owner) return 0;
+    if (move.x_from != e->x || move.y_from != e->y) return 0;
+    
+    int ok = 0;
+    int possible_coords[8][2];
+    neighbor_coords_8(state->size, move.x_from, move.y_from, possible_coords);
     for (Direction8 d = 0; d < 8; ++d) {
-        if (possible_move_spots[d][0] == move.x_to && possible_move_spots[d][1] == move.y_to) {
-            if (tile_at(state->tiles, state->size, move.x_to, move.y_to)->type == T_OCEAN) return 0;
-
-            state->entities[move.id].x = move.x_to;
-            state->entities[move.id].y = move.y_to;
-
-            // recalculate fog
-            for (TileID i = 0; i < state->size.width*state->size.height; ++i) { // set to foggy initially
-                if (state->fog_per_player[owner][i] == F_VISIBLE) {
-                    state->fog_per_player[owner][i] = F_FOGGY;
-                }
-            }
-            for (int i = 0; i < MAX_ENTITIES; ++i) { // overwrite with visible
-                Entity* e = &state->entities[i];
-                if (e->entity_type != E_NIL && e->owner == owner) {
-                    int neighbor[9][2];
-                    neighbor_coords_9(state->size, e->x, e->y, neighbor);
-                    for (Direction9 d = 0; d < 9; ++d) {
-                        *fog_at(state->fog_per_player[owner], state->size, neighbor[d][0], neighbor[d][1]) = F_VISIBLE;
-                    }
-                }
-            }
-            return 1;
+        if (possible_coords[d][0] == move.x_to && possible_coords[d][1] == move.y_to) {
+            ok = 1;
         }
     }
-    return 0;
+    if (!ok) return 0;
+
+    Tile* t = tile_at(state->tiles, state->size, move.x_to, move.y_to);
+
+    if (has_traits(e, U_LAND) && t->type == T_OCEAN) return 0;
+    if (has_traits(e, U_WATER) && t->type != T_OCEAN) return 0;
+
+    Entity* other = &state->entities[t->entity_on_first];
+    if (t->entity_on_first == 0 || other->owner == e->owner) {
+        move_unit(state->entities, state->tiles, state->size, move.id, move.x_to, move.y_to);
+    } else {
+        int res = battle(e, other, state->tiles);
+        printf("Battle, %s won\n", res ? "defender" : "attacker");
+    }
+
+    // recalculate fog
+    for (TileID i = 0; i < state->size.width*state->size.height; ++i) { // set to foggy initially
+        if (state->fog_per_player[owner][i] == F_VISIBLE) {
+            state->fog_per_player[owner][i] = F_FOGGY;
+        }
+    }
+    for (int i = 0; i < MAX_ENTITIES; ++i) { // overwrite with visible
+        Entity* e = &state->entities[i];
+        if (e->entity_type != E_NIL && e->owner == owner) {
+            int neighbor[9][2];
+            neighbor_coords_9(state->size, e->x, e->y, neighbor);
+            for (Direction9 d = 0; d < 9; ++d) {
+                *fog_at(state->fog_per_player[owner], state->size, neighbor[d][0], neighbor[d][1]) = F_VISIBLE;
+            }
+        }
+    }
+
+    return 1;
 }
 
 static void handle_playing(ServerState* state) {

@@ -16,13 +16,17 @@
 #include "resources.h"
 #include "message.h"
 #include "utils.h"
+#include "camera.h"
 
 #define PORT 8080
-#define SERVER_IP "169.231.116.248"
+#define SERVER_IP "10.0.0.98"
 
 #define WINDOW_W 960
 #define WINDOW_H 720
+#define MINIMAP_W_SCALE 6.0
+#define MINIMAP_H_SCALE 6.0
 #define MAX_KEYBOARD_KEYS 512
+#define FOG_SHADER_ON 0
 
 enum Mode {LOBBY, PLAYING, END};
 
@@ -77,6 +81,7 @@ typedef struct {
     Camera2D cam;
 } ClientState;
 
+// one day will be some kind of keybindings map
 static const int direction_keys[8] = {KEY_W, KEY_E, KEY_D, KEY_C, KEY_X, KEY_Z, KEY_A, KEY_Q};
 
 static void handle_networking(ClientState* state) {
@@ -125,25 +130,6 @@ static void update_tiles_canvas(const ClientState* state, TextureManager* tm, Ti
     }
     EndTextureMode();
 }
-static void update_entities_canvas(const ClientState* state, TextureManager* tm) {
-    BeginTextureMode(tm->entities_canvas);
-    ClearBackground((Color){0,0,0,0});
-    for (EntityID i = 0; i < MAX_ENTITIES; ++i) {
-        Entity* e = &state->entities[i];
-        if (state->colors != NULL && e->entity_type == E_UNIT) {
-            BeginShaderMode(tm->unit_color_shader);
-            Vector4 cn = ColorNormalize(GetColor(color_hex(state->colors[e->owner])));
-            Vector4 chn = ColorNormalize(GetColor(highlight_hex(state->colors[e->owner])));
-            SetShaderValue(tm->unit_color_shader, tm->unit_color_shader_cn_loc, &cn, SHADER_UNIFORM_VEC4);
-            SetShaderValue(tm->unit_color_shader, tm->unit_color_shader_chn_loc, &chn, SHADER_UNIFORM_VEC4);
-            draw_entity(e, &tm->stextures);
-            EndShaderMode();
-        } else {
-            draw_entity(e, &tm->stextures);
-        }
-    }
-    EndTextureMode();
-}
 static void update_fog_canvas(ClientState* state, TextureManager* tm, Fog* fog_update) {
     BeginTextureMode(tm->fog_canvas);
     rlSetBlendFactors(RL_ONE, RL_ZERO, RL_FUNC_ADD);
@@ -156,6 +142,40 @@ static void update_fog_canvas(ClientState* state, TextureManager* tm, Fog* fog_u
         }
     }
     EndBlendMode();
+    EndTextureMode();
+}
+static void draw_entities_onto_canvas(const ClientState* state, TextureManager* tm) {
+    BeginTextureMode(tm->entities_canvas);
+    ClearBackground((Color){0,0,0,0});
+
+    int use_unit_color_shader = (state->colors != NULL);
+    if (use_unit_color_shader) {
+        BeginShaderMode(tm->unit_color_shader);
+    }
+    for (int i = 0; i < MAX_ENTITIES; ++i) {
+        Entity* e = &state->entities[i];
+        if (e->entity_type == E_NIL || i == state->active_unit) continue;
+        if (use_unit_color_shader && e->entity_type == E_UNIT) {
+            Vector4 cn = ColorNormalize(GetColor(color_hex(state->colors[e->owner])));
+            Vector4 chn = ColorNormalize(GetColor(highlight_hex(state->colors[e->owner])));
+            SetShaderValue(tm->unit_color_shader, tm->unit_color_shader_cn_loc, &cn, SHADER_UNIFORM_VEC4);
+            SetShaderValue(tm->unit_color_shader, tm->unit_color_shader_chn_loc, &chn, SHADER_UNIFORM_VEC4);
+        }
+        draw_entity(e, &tm->stextures);
+    }
+    Entity* active = &state->entities[state->active_unit];
+    if (fmodf(GetTime(), 1.3) >= 0.3) { // blink
+        if (use_unit_color_shader && active->entity_type == E_UNIT) {
+            Vector4 cn = ColorNormalize(GetColor(color_hex(state->colors[active->owner])));
+            Vector4 chn = ColorNormalize(GetColor(highlight_hex(state->colors[active->owner])));
+            SetShaderValue(tm->unit_color_shader, tm->unit_color_shader_cn_loc, &cn, SHADER_UNIFORM_VEC4);
+            SetShaderValue(tm->unit_color_shader, tm->unit_color_shader_chn_loc, &chn, SHADER_UNIFORM_VEC4);
+        }
+        draw_entity(active, &tm->stextures);
+    }
+    if (use_unit_color_shader) {
+        EndShaderMode();
+    }
     EndTextureMode();
 }
 
@@ -218,9 +238,11 @@ static void handle_incoming_messages(ClientState* state, TextureManager* tm) {
                 if (!state->got_entities) {
                     tm->entities_canvas = LoadRenderTexture(tm->canvas_w, tm->canvas_h);
                 }
-                update_entities_canvas(state, tm);
                 free(entities_update);
-                
+
+                if (!state->got_entities)
+                    for (EntityID i = 0; i < MAX_ENTITIES; ++i)
+                        if (state->entities[i].entity_type != E_NIL) printf("e: %d\n", i);
                 state->got_entities = 1;
                 break;
             }
@@ -251,10 +273,10 @@ static void handle_incoming_messages(ClientState* state, TextureManager* tm) {
                     state->mode = END;
                     return;
                 }
-                tm->final_canvas = LoadRenderTexture(state->size.width*TILE_W, state->size.height*TILE_H);
+                tm->final_canvas = LoadRenderTexture(tm->canvas_w, tm->canvas_h);
                   GenTextureMipmaps(&tm->final_canvas.texture);
                   //SetTextureFilter(tm->final_canvas.texture, TEXTURE_FILTER_TRILINEAR);
-                tm->minimap = LoadRenderTexture(state->window_w/6.0, state->window_h/6.0);
+                tm->minimap = LoadRenderTexture(state->window_w/MINIMAP_W_SCALE, state->window_h/MINIMAP_H_SCALE);
                 state->cam = (Camera2D){
                     .zoom = 1.0,
                     .target = (Vector2){tm->canvas_w/2.0, tm->canvas_h/2.0},
@@ -281,40 +303,28 @@ static void handle_lobby(ClientState* state, TextureManager* tm) {
 }
 
 static void handle_playing(ClientState* state, TextureManager* tm) {
-    // input
     if (state->active_unit == 0) {
-        for (int i = 1; i < MAX_ENTITIES; ++i) {
+        for (EntityID i = 1; i < MAX_ENTITIES; ++i) {
             if (state->entities[i].owner == state->my_player_id && state->entities[i].entity_type == E_UNIT) {
                 state->active_unit = i;
             }
         }
     }
 
-    // camera
+    CM_UnitMove* unit_moves = malloc(MAX_ENTITIES * sizeof(CM_UnitMove));
+    int unit_moves_count = 0;
+
+    // input
     float wheel = GetMouseWheelMove();
     if (wheel != 0) {
         Vector2 mouse = GetMousePosition();
-        Vector2 world_before = GetScreenToWorld2D(mouse, state->cam);
-          state->cam.zoom *= (1.0f + wheel * 0.2f);
-          state->cam.zoom = CLAMP(state->cam.zoom, 1.0f, 8.0f);
-        Vector2 world_after = GetScreenToWorld2D(mouse, state->cam);
-        state->cam.target.x += world_before.x - world_after.x;
-        state->cam.target.y += world_before.y - world_after.y;
+        float zoom_factor = (1.0f + wheel * 0.2f);
+        zoom_on_anchor(&state->cam, (CameraSizeInfo){state->window_w, state->window_h, tm->canvas_w, tm->canvas_h}, zoom_factor, mouse);
     }
     if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
         Vector2 delta = GetMouseDelta();
-        state->cam.target.x -= delta.x / state->cam.zoom;
-        state->cam.target.y -= delta.y / state->cam.zoom;
+        pan(&state->cam, (CameraSizeInfo){state->window_w, state->window_h, tm->canvas_w, tm->canvas_h}, delta.x, delta.y);
     }
-    float half_screen_h = (state->window_h / 2.0f) / state->cam.zoom;
-    state->cam.target.y = CLAMP(state->cam.target.y, half_screen_h, tm->canvas_h - half_screen_h);
-    float canvas_w = tm->canvas_w;
-    state->cam.target.x = fmodf(state->cam.target.x, canvas_w);
-    if (state->cam.target.x < 0) state->cam.target.x += canvas_w;
-
-    // moves
-    CM_UnitMove* unit_moves = malloc(MAX_ENTITIES * sizeof(CM_UnitMove));
-    int unit_moves_count = 0;
     
     int last_key_pressed = 0;
     int k = GetKeyPressed();
@@ -333,6 +343,16 @@ static void handle_playing(ClientState* state, TextureManager* tm) {
             unit_moves[unit_moves_count++] = (CM_UnitMove){id, gen, x_from, y_from, x_to, y_to};
         }
     }
+    if (last_key_pressed == KEY_SPACE) {
+        for (EntityID i = (state->active_unit+1)%MAX_ENTITIES; i != state->active_unit; i = (i+1)%MAX_ENTITIES) {
+            if (i == 0) continue;
+            if (state->entities[i].owner == state->my_player_id && state->entities[i].entity_type == E_UNIT) {
+                state->active_unit = i;
+                printf("switched to entity %d\n", i);
+                break;
+            }
+        }
+    }
     
     // send
     if (unit_moves_count > 0) {
@@ -341,8 +361,7 @@ static void handle_playing(ClientState* state, TextureManager* tm) {
     free(unit_moves);
     
     // rendering
-    float f = GetTime();
-    SetShaderValue(tm->fog_shader, tm->fog_shader_time_loc, &f, SHADER_UNIFORM_FLOAT);
+    draw_entities_onto_canvas(state, tm);
     
     BeginTextureMode(tm->final_canvas);
     ClearBackground((Color){0,0,0,0});
@@ -358,15 +377,21 @@ static void handle_playing(ClientState* state, TextureManager* tm) {
             (Rectangle){0,0,tm->canvas_w,tm->canvas_h},
             (Vector2){0.0,0.0}, 0.0, WHITE
         );
-    BeginShaderMode(tm->fog_shader);
-    DrawTexturePro(
-        tm->fog_canvas.texture,
-        (Rectangle){0,0,tm->fog_canvas.texture.width, -tm->fog_canvas.texture.height},
-        (Rectangle){0,0,tm->canvas_w,tm->canvas_h},
-        (Vector2){0.0,0.0}, 0.0, WHITE
-    );
-    EndShaderMode();
-    EndTextureMode();
+    // if (FOG_SHADER_ON) {
+        // BeginShaderMode(tm->fog_shader);
+        // float f = GetTime();
+        // SetShaderValue(tm->fog_shader, tm->fog_shader_time_loc, &f, SHADER_UNIFORM_FLOAT);
+    // }
+    // DrawTexturePro(
+        // tm->fog_canvas.texture,
+        // (Rectangle){0,0,tm->fog_canvas.texture.width, -tm->fog_canvas.texture.height},
+        // (Rectangle){0,0,tm->canvas_w,tm->canvas_h},
+        // (Vector2){0.0,0.0}, 0.0, WHITE
+    // );
+    // if (FOG_SHADER_ON) {
+        // EndShaderMode();
+    // }
+    // EndTextureMode();
 
     BeginTextureMode(tm->minimap);
     ClearBackground(BLACK);
@@ -378,12 +403,10 @@ static void handle_playing(ClientState* state, TextureManager* tm) {
         (Rectangle){0, 0, tm->minimap.texture.width, tm->minimap.texture.height},
         (Vector2){0, 0}, 0.0f, WHITE
     );
-    float scale_x = (float)mini_w / tm->canvas_w;
-    float scale_y = (float)mini_h / tm->canvas_h;
-    float view_w = (state->window_w / state->cam.zoom) * scale_x;
-    float view_h = (state->window_h / state->cam.zoom) * scale_y;
-    float view_x = state->cam.target.x * scale_x - view_w/2.0f;
-    float view_y = state->cam.target.y * scale_y - view_h/2.0f;
+    float view_w = (state->window_w / state->cam.zoom) * (1/MINIMAP_W_SCALE);
+    float view_h = (state->window_h / state->cam.zoom) * (1/MINIMAP_H_SCALE);
+    float view_x = state->cam.target.x * (1/MINIMAP_W_SCALE) - view_w/2.0f;
+    float view_y = state->cam.target.y * (1/MINIMAP_H_SCALE) - view_h/2.0f;
     DrawRectangleLines((int)view_x, (int)view_y, (int)view_w, (int)view_h, WHITE);
     DrawRectangleLines(0, 0, mini_w, mini_h, WHITE);
     EndTextureMode();

@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdarg.h>
 
 #include "resources.h"
@@ -19,7 +20,7 @@ void load_textures(SpritesheetTextures* out) {
     UnloadImage(tiles_img);
     
     for (TileType i = T_DESERT; i < T_COUNT; ++i) {
-        for (Connections j = 0; j < CONNECTIONS_PERMUTATIONS; ++j) {
+        for (uint8_t j = 0; j < CONNECTIONS_PERMUTATIONS; ++j) {
             out->tiles[i][j] = (TexturePortion){
                 spritesheet,
                 (Rectangle){tiles_portion.x + TILE_W*j, tiles_portion.y + TILE_H*(i-T_DESERT), TILE_W, TILE_H},
@@ -69,7 +70,7 @@ int get_corner_index(int corner, int direction8_on_bools[8]) {
 }
 
 void draw_tile(Tile* tiles, MapSize size, Tile* t, int x, int y, SpritesheetTextures* stextures) {
-    Connections connections = 0;
+    uint8_t connections = 0;
     TileID neigh[4];
     neighbor_ids_4(size, x, y, neigh);
     switch (t->type) {

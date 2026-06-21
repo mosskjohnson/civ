@@ -7,6 +7,7 @@
 
 #define MAX_ENTITIES 1024
 #define CONNECTIONS_PERMUTATIONS 16
+#define BATTLE_CURVE_SHARPNESS 0.4
 
 #define FOR_COLORS(DO) \
     DO(0, CIVWHITE, 0xebebebff, 0x8a8a8eff) \
@@ -151,12 +152,14 @@ typedef struct {
     int x;
     int y;
     EntityID entity_on_next;
+    TileID parent;
     union {
         struct { // UNIT
             UnitType unit_type;
             int movement_remaining;
             EntityID carrying_first;
             EntityID carrying_next;
+            EntityID carrying_parent;
         };
         struct { // CITY
             int population;
@@ -190,13 +193,6 @@ typedef enum {
 } TileTraits;
 
 typedef enum {
-    C_NORTH = (1 << 0),
-    C_EAST = (1 << 1),
-    C_SOUTH = (1 << 2),
-    C_WEST = (1 << 3),
-} Connections;
-
-typedef enum {
     IM_IRRIGATION = (1 << 0),
     IM_ROAD       = (1 << 1),
     IM_RAILROAD   = (1 << 2),
@@ -204,7 +200,6 @@ typedef enum {
 
 typedef struct {
     TileType type;
-    Connections connections;
     Improvements improvements;
     EntityID entity_on_first;
 } Tile;
@@ -229,7 +224,7 @@ typedef struct {
     const char* name;
     TileTraits traits;
     int movement_cost;
-    float defense_multiplier;
+    float defense_bonus;
 } TileTypeInfo;
 extern TileTypeInfo tile_type_info[T_COUNT];
 
@@ -238,7 +233,11 @@ Direction8 direction8_opposite(Direction8 d);
 
 Entity* alloc_entities(void);
 void free_entities(Entity* entities);
-void new_unit(Entity* entities, playerID owner, int x, int y, UnitType unit_type);
+void new_unit(Entity* entities, Tile* tiles, MapSize size, playerID owner, int x, int y, UnitType unit_type);
+void rem_unit(Entity* entities, Tile* tiles, EntityID e);
+void move_unit(Entity* entities, Tile* tiles, MapSize size, EntityID i, int x_to, int y_to);
+int battle(Entity* attacker, Entity* defender, Tile* tiles);
+int has_traits(Entity* e, UnitTraits traits);
 
 Tile* alloc_tiles(MapSize size);
 void free_tiles(Tile* tiles);

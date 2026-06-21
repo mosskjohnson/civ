@@ -38,11 +38,11 @@ typedef struct {
     float elevation_cutoffs[2];
     float temperature_cutoffs[2];
     float moisture_cutoffs[2];
+    float randomness;
 } GenParameters;
 
 GenParameters default_gen_parameters_medium(void);
 GenParameters default_gen_parameters_large(void);
-
 
 GenCell* alloc_world(GenParameters params);
 

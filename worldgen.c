@@ -3,10 +3,10 @@
 #include <math.h>
 #include <assert.h>
 #include "worldgen.h"
+#include "utils.h"
 
 #define at(world, p, x, y) world[(y)*p.size.width + (x)]
 #define inrange(a, bound_begin, bound_end) (a >= bound_begin && a < bound_end)
-#define frand() (float)rand()/(float)RAND_MAX
 
 TileType biome_matrix[ELEVATION_LEVELS][TEMPERATURE_LEVELS][MOISTURE_LEVELS] = {
     { // elevation 0
@@ -45,9 +45,9 @@ GenParameters default_gen_parameters_medium(void) {
         .elevation_cutoffs = {0.20, 0.5},
         .temperature_cutoffs = {0.3, 0.7},
         .moisture_cutoffs = {0.35, 0.7},
+        .randomness = 0.2,
     };
 }
-
 
 GenParameters default_gen_parameters_large(void) {
     return (GenParameters){
@@ -68,6 +68,7 @@ GenParameters default_gen_parameters_large(void) {
         .elevation_cutoffs = {0.18, 0.45},
         .temperature_cutoffs = {0.3, 0.7},
         .moisture_cutoffs = {0.3, 0.6},
+        .randomness = 0.2,
     };
 }
 
@@ -216,7 +217,7 @@ void generate_world(GenCell* out, GenParameters p) {
             float latitude_factor = abs(y-(p.size.height/2)) / (float)(p.size.height/2);
             float elevation_mean = ref->elevation_norm / 2.0;
             float elevation_delta = ref->elevation_norm - elevation_mean;
-            float temperature_jitter = ((frand()*2)-1)*0.05;
+            float temperature_jitter = ((FRAND()*2)-1)*0.05;
             float temperature = (-latitude_factor+1) - 0.9*(elevation_delta) + temperature_jitter;
             if (temperature < 0.0) temperature = 0.0;
             if (temperature > 1.0) temperature = 1.0;
@@ -246,7 +247,7 @@ void generate_world(GenCell* out, GenParameters p) {
     float total = 0; // weighted random selection
     for (int i = 0; i < river_cands_count; ++i) total += river_cands[i].fitness;
     while (river_area < desired_river_area) {
-        float r = frand() * total;
+        float r = FRAND() * total;
         for (int i = 0; i < river_cands_count; ++i) {
             r -= (river_cands[i].fitness);
             if (r < 0) {
@@ -279,7 +280,7 @@ void generate_world(GenCell* out, GenParameters p) {
                         river_area++;
                     }
                     int found_flag = 0;
-                    Direction4 dir_jitter = (floor(frand()*1.2))*3;
+                    Direction4 dir_jitter = (floor(FRAND()*1.2))*3;
                     for (int j = 0; j < 4; ++j) {
                         Direction4 d = (dir_prev+dir_jitter+j)%4;
                         int nx = x + DELTAS_4[d][0];
@@ -294,7 +295,7 @@ void generate_world(GenCell* out, GenParameters p) {
                         }
                     }
                     if (!found_flag) {
-                        if (frand() < 0.9) {
+                        if (FRAND() < 0.9) {
                             // go in the previous direction
                             Direction4 d = (dir_prev+dir_jitter)%4;
                             int nx = x + DELTAS_4[d][0];
@@ -325,7 +326,7 @@ void generate_world(GenCell* out, GenParameters p) {
         int y = ys[i];
         for (int x = 0; x < p.size.width; ++x) {
             if (i%2==1) {
-                if (frand() < 0.4) continue;
+                if (FRAND() < 0.4) continue;
             }
             GenCell* ref = out + y*p.size.width + x;
             ref->elevation = 1;
@@ -372,17 +373,46 @@ void generate_world(GenCell* out, GenParameters p) {
             
             type = biome_matrix[elevation_level][temperature_level][moisture_level];
         }
+        // final randomization
+        if (FRAND() < p.randomness) {
+            switch (type) {
+                case T_NIL: break;
+                case T_DESERT: type = T_PLAINS; break;
+                case T_PLAINS: type = T_GRASSLAND; break;
+                case T_GRASSLAND: type = T_HILLS; break;
+                case T_FOREST: type = T_HILLS; break;
+                case T_HILLS: type = T_FOREST; break;
+                case T_MOUNTAIN: type = T_HILLS; break;
+                case T_TUNDRA: type = T_GRASSLAND; break;
+                default: break;
+            }
+        }
+        if (FRAND() < p.randomness) {
+            switch (type) {
+                case T_NIL: break;
+                case T_GRASSLAND: type = T_PLAINS; break;
+                case T_HILLS: type = T_MOUNTAIN; break;
+                default: break;
+            }
+        }
+        if (FRAND() < p.randomness/1.5) {
+            switch (type) {
+                case T_NIL: break;
+                case T_PLAINS: type = T_DESERT; break;
+                case T_FOREST: type = T_GRASSLAND; break;
+                case T_HILLS: type = T_GRASSLAND; break;
+                default: break;
+            }
+        }
         ref->final_tile_type = type;
     }
-    
 }
 
 void to_tiles(GenCell* in, Tile* tiles_out, MapSize size) {
     for (int x = 0; x < size.width; ++x) {
         for (int y = 0; y < size.height; ++y) {
             GenCell* cell = in + y*size.width + x;
-            // TODO: use updated tiles_at function
-            tiles_out[y*size.width + x].type = cell->final_tile_type;
+            tile_at(tiles_out, size, x, y)->type = cell->final_tile_type;
         }
     }
 }
