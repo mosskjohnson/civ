@@ -9,6 +9,7 @@ static const Rectangle tiles_portion = {0, 0, 256, 256};
 static const Rectangle units_portion = {256, 0, 256, 64};
 static const Rectangle ocean_corners_portion = {256, 64, 64, 32};
 static const Rectangle rivermouths_portion = {256, 96, 64, 16};
+static const Rectangle natural_resources_portion = {256, 112, 192, 16};
 
 void load_textures(SpritesheetTextures* out) {
     int texture_i = 0;
@@ -53,6 +54,12 @@ void load_textures(SpritesheetTextures* out) {
             (Rectangle){rivermouths_portion.x + TILE_W*i, rivermouths_portion.y, TILE_W, TILE_H},
         };
     }
+    for (TileType i = T_DESERT; i < T_COUNT; ++i) {
+        out->natural_resources[i] = (TexturePortion){
+            spritesheet,
+            (Rectangle){natural_resources_portion.x + TILE_W*(i-T_DESERT), natural_resources_portion.y, TILE_W, TILE_H},
+        };
+    }
 }
 
 void unload_textures(SpritesheetTextures* in) {
@@ -74,7 +81,7 @@ void draw_tile(Tile* tiles, MapSize size, Tile* t, int x, int y, SpritesheetText
     TileID neigh[4];
     neighbor_ids_4(size, x, y, neigh);
     switch (t->type) {
-        case T_NIL: break;
+        case T_NIL: return;
         case T_OCEAN:
             for (Direction4 d = 0; d < 4; ++d) {
                 if (tiles[neigh[d]].type != T_OCEAN) {
@@ -120,6 +127,11 @@ void draw_tile(Tile* tiles, MapSize size, Tile* t, int x, int y, SpritesheetText
                 DrawTexturePro(rivermouth.texture, rivermouth.portion, (Rectangle){x*TILE_W, y*TILE_H, TILE_W, TILE_H}, (Vector2){0.0,0.0}, 0.0, WHITE);
             }
         }
+    }
+    // draw natural resource
+    if (t->natural_resource) {
+        TexturePortion natural_resource_tp = stextures->natural_resources[t->type];
+        DrawTexturePro(natural_resource_tp.texture, natural_resource_tp.portion, (Rectangle){x*TILE_W, y*TILE_H, TILE_W, TILE_H}, (Vector2){0.0, 0.0}, 0.0f, WHITE);
     }
 }
 

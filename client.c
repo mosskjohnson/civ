@@ -8,6 +8,7 @@
 #include <sys/poll.h>
 #include <time.h>
 #include <math.h>
+#include <stdbool.h>
 
 #include "raylib.h"
 #include "rlgl.h"
@@ -73,12 +74,15 @@ typedef struct {
     EntityID active_unit;
     Tile* tiles;
     Fog* fog;
-    int got_size;
-    int got_entities;
-    int got_tiles;
-    int got_fog;
+    bool got_size;
+    bool got_entities;
+    bool got_tiles;
+    bool got_fog;
     CivColor* colors;
     Camera2D cam;
+    int turn;
+    float seconds_for_this_turn;
+    float moment_turn_started;
 } ClientState;
 
 // one day will be some kind of keybindings map
@@ -286,6 +290,13 @@ static void handle_incoming_messages(ClientState* state, TextureManager* tm) {
                 free(body);
                 break;
             }
+            case SM_NEXT_TURN: {
+                SM_NextTurn* msg = (SM_NextTurn*)body;
+                state->turn = msg[0].turn;
+                state->seconds_for_this_turn = msg[0].seconds;
+                state->moment_turn_started = GetTime();
+                break;
+            }
             default: free(body); break;
         }
     }
@@ -302,13 +313,19 @@ static void handle_lobby(ClientState* state, TextureManager* tm) {
     EndDrawing();
 }
 
-static void handle_playing(ClientState* state, TextureManager* tm) {
-    if (state->active_unit == 0 || state->entities[state->active_unit].entity_type == E_NIL) {
-        for (EntityID i = 1; i < MAX_ENTITIES; ++i) {
-            if (state->entities[i].owner == state->my_player_id && state->entities[i].entity_type == E_UNIT) {
-                state->active_unit = i;
-            }
+static EntityID get_next_eligible_unit(ClientState* state, EntityID e_old) {
+    for (EntityID i = (e_old+1)%MAX_ENTITIES; i != e_old; i = (i+1)%MAX_ENTITIES) {
+        if (i == 0) continue;
+        if (state->entities[i].owner == state->my_player_id && state->entities[i].entity_type == E_UNIT && state->entities[i].movement_remaining > 0) {
+            return i;
         }
+    }
+    return 0;
+}
+
+static void handle_playing(ClientState* state, TextureManager* tm) {
+    if (state->active_unit == 0 || state->entities[state->active_unit].entity_type == E_NIL || state->entities[state->active_unit].movement_remaining <= 0) {
+        state->active_unit = get_next_eligible_unit(state, state->active_unit);
     }
 
     CM_UnitMove* unit_moves = malloc(MAX_ENTITIES * sizeof(CM_UnitMove));
@@ -334,6 +351,7 @@ static void handle_playing(ClientState* state, TextureManager* tm) {
     }
     for (int dk = 0; dk < 8; ++dk) {
         if (last_key_pressed == direction_keys[dk]) {
+            if (state->active_unit == 0) break;
             int id = state->active_unit;
             int gen = state->entities[id].gen;
             int x_from = state->entities[state->active_unit].x;
@@ -344,14 +362,8 @@ static void handle_playing(ClientState* state, TextureManager* tm) {
         }
     }
     if (last_key_pressed == KEY_SPACE) {
-        for (EntityID i = (state->active_unit+1)%MAX_ENTITIES; i != state->active_unit; i = (i+1)%MAX_ENTITIES) {
-            if (i == 0) continue;
-            if (state->entities[i].owner == state->my_player_id && state->entities[i].entity_type == E_UNIT) {
-                state->active_unit = i;
-                printf("switched to entity %d\n", i);
-                break;
-            }
-        }
+        state->active_unit = get_next_eligible_unit(state, state->active_unit);
+        printf("switched to entity %d\n", state->active_unit);
     }
     
     // send
@@ -377,21 +389,21 @@ static void handle_playing(ClientState* state, TextureManager* tm) {
             (Rectangle){0,0,tm->canvas_w,tm->canvas_h},
             (Vector2){0.0,0.0}, 0.0, WHITE
         );
-    // if (FOG_SHADER_ON) {
-        // BeginShaderMode(tm->fog_shader);
-        // float f = GetTime();
-        // SetShaderValue(tm->fog_shader, tm->fog_shader_time_loc, &f, SHADER_UNIFORM_FLOAT);
-    // }
-    // DrawTexturePro(
-        // tm->fog_canvas.texture,
-        // (Rectangle){0,0,tm->fog_canvas.texture.width, -tm->fog_canvas.texture.height},
-        // (Rectangle){0,0,tm->canvas_w,tm->canvas_h},
-        // (Vector2){0.0,0.0}, 0.0, WHITE
-    // );
-    // if (FOG_SHADER_ON) {
-        // EndShaderMode();
-    // }
-    // EndTextureMode();
+    if (FOG_SHADER_ON) {
+        BeginShaderMode(tm->fog_shader);
+        float f = GetTime();
+        SetShaderValue(tm->fog_shader, tm->fog_shader_time_loc, &f, SHADER_UNIFORM_FLOAT);
+    }
+    DrawTexturePro(
+        tm->fog_canvas.texture,
+        (Rectangle){0,0,tm->fog_canvas.texture.width, -tm->fog_canvas.texture.height},
+        (Rectangle){0,0,tm->canvas_w,tm->canvas_h},
+        (Vector2){0.0,0.0}, 0.0, WHITE
+    );
+    if (FOG_SHADER_ON) {
+        EndShaderMode();
+    }
+    EndTextureMode();
 
     BeginTextureMode(tm->minimap);
     ClearBackground(BLACK);
@@ -403,10 +415,13 @@ static void handle_playing(ClientState* state, TextureManager* tm) {
         (Rectangle){0, 0, tm->minimap.texture.width, tm->minimap.texture.height},
         (Vector2){0, 0}, 0.0f, WHITE
     );
-    float view_w = (state->window_w / state->cam.zoom) * (1/MINIMAP_W_SCALE);
-    float view_h = (state->window_h / state->cam.zoom) * (1/MINIMAP_H_SCALE);
-    float view_x = state->cam.target.x * (1/MINIMAP_W_SCALE) - view_w/2.0f;
-    float view_y = state->cam.target.y * (1/MINIMAP_H_SCALE) - view_h/2.0f;
+    float scale_x = (float)mini_w / tm->canvas_w;
+    float scale_y = (float)mini_h / tm->canvas_h;
+
+    float view_w = (state->window_w / state->cam.zoom) * scale_x;
+    float view_h = (state->window_h / state->cam.zoom) * scale_y;
+    float view_x = state->cam.target.x * scale_x - view_w / 2.0f;
+    float view_y = state->cam.target.y * scale_y - view_h / 2.0f;
     DrawRectangleLines((int)view_x, (int)view_y, (int)view_w, (int)view_h, WHITE);
     DrawRectangleLines(0, 0, mini_w, mini_h, WHITE);
     EndTextureMode();
@@ -446,6 +461,8 @@ static void handle_playing(ClientState* state, TextureManager* tm) {
         (Rectangle){0, 0, state->window_w/6.0, state->window_h/6.0},
         (Vector2){0, 0}, 0.0f, WHITE
     );
+    float seconds_since_turn_started = GetTime() - state->moment_turn_started;
+    draw_text(tm->font, 16.0, 2.0, state->window_w/2, 0, FA_MIDDLE, FA_START, WHITE, "TURN %d TIME: %.0f", state->turn, state->seconds_for_this_turn - seconds_since_turn_started);
     draw_text(tm->font, 16.0, 2.0, state->window_w, 0, FA_END, FA_START, WHITE, "%d FPS", GetFPS());
     EndDrawing();
 }

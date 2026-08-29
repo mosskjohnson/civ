@@ -131,12 +131,13 @@ typedef enum {  // ORDER OF SPRITESHEET
 } UnitType;
 
 typedef enum {
-    U_LAND     = (1 << 0),
-    U_WATER    = (1 << 1),
-    U_AIR      = (1 << 2),
-    U_CARRIES  = (1 << 3),
-    U_SETTLES  = (1 << 4),
-    U_PEACEFUL = (1 << 5),
+    U_LAND         = (1 << 0),
+    U_WATER        = (1 << 1),
+    U_AIR          = (1 << 2),
+    U_CARRIES_LAND = (1 << 3),
+    U_CARRIES_AIR = (1 << 4),
+    U_SETTLES      = (1 << 5),
+    U_PEACEFUL     = (1 << 6),
 } UnitTraits;
 
 typedef enum {
@@ -157,6 +158,8 @@ typedef struct {
         struct { // UNIT
             UnitType unit_type;
             int movement_remaining;
+            
+            int carrying_count;
             EntityID carrying_first;
             EntityID carrying_next;
             EntityID carrying_parent;
@@ -200,6 +203,7 @@ typedef enum {
 
 typedef struct {
     TileType type;
+    int natural_resource; // bool
     Improvements improvements;
     EntityID entity_on_first;
 } Tile;
@@ -236,6 +240,8 @@ void free_entities(Entity* entities);
 void new_unit(Entity* entities, Tile* tiles, MapSize size, playerID owner, int x, int y, UnitType unit_type);
 void rem_unit(Entity* entities, Tile* tiles, EntityID e);
 void move_unit(Entity* entities, Tile* tiles, MapSize size, EntityID i, int x_to, int y_to);
+void move_unit_board(Entity* entities, Tile* tiles, MapSize size, EntityID boarder, EntityID carrier, int x_to, int y_to);
+void move_unit_unboard(Entity* entities, Tile* tiles, MapSize size, EntityID unboarder, EntityID carrier, int x_to, int y_to);
 int battle(Entity* attacker, Entity* defender, Tile* tiles);
 int has_traits(Entity* e, UnitTraits traits);
 

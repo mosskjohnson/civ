@@ -32,21 +32,21 @@ UnitTypeInfo unit_type_info[U_COUNT] = { // ORDER OF SPRITESHEET
     [U_KNIGHTS]    = {"knights",     4,  2,  2, 0, U_LAND},
     [U_CATAPULT]   = {"catapult",    6,  1,  1, 0, U_LAND},
     [U_CANNON]     = {"cannon",      8,  1,  1, 0, U_LAND},
-    [U_CHARIOT]    = {"chariot",     4,  1,  2, 0, U_LAND},
+    [U_CHARIOT]    = {"chariot",     4,  1, 20, 0, U_LAND},
     [U_ARMOR]      = {"armor",      10,  5,  3, 0, U_LAND},
     [U_MECH_INF]   = {"mech_inf",    6,  6,  3, 0, U_LAND},
     [U_ARTILLERY]  = {"artillery",  12,  2,  2, 0, U_LAND},
     [U_FIGHTER]    = {"fighter",     4,  2, 10, 0, U_AIR},
     [U_BOMBER]     = {"bomber",     12,  1,  8, 0, U_AIR},
-    [U_TRIREME]    = {"trireme",     1,  1,  3, 2, U_WATER | U_CARRIES},
-    [U_SAIL]       = {"sail",        1,  1,  3, 3, U_WATER | U_CARRIES},
-    [U_FRIGATE]    = {"frigate",     2,  2,  3, 4, U_WATER | U_CARRIES},
+    [U_TRIREME]    = {"trireme",     1,  1,  3, 2, U_WATER | U_CARRIES_LAND},
+    [U_SAIL]       = {"sail",        1,  1,  3, 3, U_WATER | U_CARRIES_LAND},
+    [U_FRIGATE]    = {"frigate",     2,  2, 30, 4, U_WATER | U_CARRIES_LAND},
     [U_IRONCLAD]   = {"ironclad",    4,  4,  4, 0, U_WATER},
     [U_CRUISER]    = {"cruiser",     6,  6,  6, 0, U_WATER},
     [U_BATTLESHIP] = {"battleship", 18, 12,  4, 0, U_WATER},
     [U_SUBMARINE]  = {"submarine",   8,  2,  3, 0, U_WATER},
-    [U_CARRIER]    = {"carrier",     1, 12,  5, 8, U_WATER | U_CARRIES},
-    [U_TRANSPORT]  = {"transport",   0,  3,  4, 8, U_WATER | U_CARRIES},
+    [U_CARRIER]    = {"carrier",     1, 12,  5, 8, U_WATER | U_CARRIES_AIR},
+    [U_TRANSPORT]  = {"transport",   0,  3,  4, 8, U_WATER | U_CARRIES_LAND},
     [U_NUCLEAR]    = {"nuclear",    99,  0, 16, 0, U_AIR},
     [U_DIPLOMAT]   = {"diplomat",    0,  0,  2, 0, U_LAND | U_PEACEFUL},
     [U_CARAVAN]    = {"caravan",     0,  1,  1, 0, U_LAND | U_PEACEFUL},
@@ -61,6 +61,7 @@ TileTypeInfo tile_type_info[T_COUNT] = {
     {"hills", T_LAND | T_IRRIGABLE, 2, 1.0},
     {"mountain", T_LAND, 3, 2.0},
     {"tundra", T_LAND, 1, 0.0},
+    {"arctic", T_LAND, 1, 0.0},
     {"swamp", T_LAND, 2, 0.5},
     {"jungle", T_LAND, 2, 0.5},
     {"ocean", T_WATER, 1, 0.0},
@@ -104,9 +105,10 @@ static void entangle(Entity* entities, Tile* tiles, EntityID e, TileID t) {
         tiles[t].entity_on_first = e;
     } else {
         EntityID j = tiles[t].entity_on_first;
-        if (j == e) return;
+        assert(j != e);
         while (entities[j].entity_on_next != 0) {
             j = entities[j].entity_on_next;
+            assert(j != e);
         }
         entities[j].entity_on_next = e;
     }
@@ -127,6 +129,43 @@ static void untangle(Entity* entities, Tile* tiles, EntityID e, TileID t) {
     entities[e].entity_on_next = 0;
 }
 
+static void board(Entity* entities, EntityID boarder, EntityID carrier) {
+    if (entities[carrier].carrying_count >= unit_type_info[entities[carrier].unit_type].carries) return;
+
+    entities[boarder].carrying_parent = carrier;
+    if (entities[carrier].carrying_first == 0) {
+        entities[carrier].carrying_first = boarder;
+    } else {
+        EntityID j = entities[carrier].carrying_first;
+        assert(j != boarder);
+        while (j != 0 && entities[j].carrying_next != 0) {
+            j = entities[j].carrying_next;
+            assert(j != boarder);
+        }
+        entities[j].carrying_next = boarder;
+    }
+
+    entities[carrier].carrying_count++;
+}
+
+static void unboard(Entity* entities, EntityID unboarder, EntityID carrier) {
+    if (entities[carrier].carrying_first == unboarder) {
+        entities[carrier].carrying_first = entities[unboarder].carrying_next;
+    } else {
+        EntityID j = entities[carrier].carrying_first;
+        assert(j != 0);
+        while (entities[j].carrying_next != unboarder) {
+            j = entities[j].carrying_next;
+            assert(j != 0);
+        }
+        entities[j].carrying_next = entities[unboarder].carrying_next;
+    }
+    entities[unboarder].carrying_parent = 0;
+    entities[unboarder].carrying_next = 0;
+
+    entities[carrier].carrying_count--;
+}
+
 void new_unit(Entity* entities, Tile* tiles, MapSize size, playerID owner, int x, int y, UnitType unit_type) {
     EntityID i = add_entity(entities);
     Entity* e = &entities[i];
@@ -142,22 +181,59 @@ void new_unit(Entity* entities, Tile* tiles, MapSize size, playerID owner, int x
 }
 
 void rem_unit(Entity* entities, Tile* tiles, EntityID e) {
+    EntityID i = entities[e].carrying_first;
+    while (i != 0) {
+        EntityID next = entities[i].carrying_next;
+        
+        untangle(entities, tiles, i, entities[i].parent);
+        rem_entity(entities, i);
+        
+        i = next;
+    }
     untangle(entities, tiles, e, entities[e].parent);
     rem_entity(entities, e);
 }
 
 void move_unit(Entity* entities, Tile* tiles, MapSize size, EntityID i, int x_to, int y_to) {
-    if (i == 0) assert(0);
+    assert(i != 0);
 
-    Entity* e = &entities[i];
+    entities[i].movement_remaining--;
 
-    TileID t_from = e->parent;
+    TileID t_from = entities[i].parent;
     TileID t_to = tile_id_at(size, x_to, y_to);
 
     untangle(entities, tiles, i, t_from);
-    e->x = x_to;
-    e->y = y_to;
+    entities[i].x = x_to;
+    entities[i].y = y_to;
     entangle(entities, tiles, i, t_to);
+
+    // move all carried units
+    for (int j = entities[i].carrying_first; j != 0; j = entities[j].carrying_next) {
+        untangle(entities, tiles, j, t_from);
+        entities[j].x = x_to;
+        entities[j].y = y_to;
+        entangle(entities, tiles, j, t_to);
+    }
+}
+
+void move_unit_board(Entity* entities, Tile* tiles, MapSize size, EntityID boarder, EntityID carrier, int x_to, int y_to) {
+    assert(boarder != 0);
+    assert(carrier != 0);
+    assert(entities[boarder].carrying_count == 0);
+
+    move_unit(entities, tiles, size, boarder, x_to, y_to);
+
+    board(entities, boarder, carrier);
+}
+
+void move_unit_unboard(Entity* entities, Tile* tiles, MapSize size, EntityID unboarder, EntityID carrier, int x_to, int y_to) {
+    assert(unboarder != 0);
+    assert(carrier != 0);
+    assert(entities[unboarder].carrying_count == 0);
+
+    move_unit(entities, tiles, size, unboarder, x_to, y_to);
+
+    unboard(entities, unboarder, carrier);
 }
 
 static int battle_math(float a, float d) {
@@ -167,6 +243,7 @@ static int battle_math(float a, float d) {
 
 // returns 1 for attacker win and 0 for defender win
 int battle(Entity* attacker, Entity* defender, Tile* tiles) {
+    attacker->movement_remaining--;
 
     float attack_base = (float)unit_type_info[attacker->unit_type].attack;
     float defense_base = (float)unit_type_info[defender->unit_type].defense;

@@ -11,12 +11,13 @@ typedef enum {
     SM_PLAYER_JOINED_LOBBY,
     SM_PLAYER_LEFT_LOBBY,
     SM_GAME_STARTING,
-    
+
     SM_COLORS, // eventually the client should choose
     SM_MAPSIZE,
     SM_ENTITIES,
     SM_TILES,
     SM_FOG,
+    SM_NEXT_TURN,
 
     // client to server
     CM_UNIT_MOVE,
@@ -43,6 +44,11 @@ typedef struct {
     int num_players_now;
     int max_players;
 } SM_PlayerLeftLobby;
+
+typedef struct {
+    int turn;
+    float seconds;
+} SM_NextTurn;
 
 typedef struct {
     EntityID id;

@@ -33,6 +33,7 @@ typedef struct {
     TexturePortion units[U_COUNT];
     TexturePortion ocean_corners[4][8];
     TexturePortion rivermouths[4];
+    TexturePortion natural_resources[T_COUNT];
 } SpritesheetTextures;
 
 void load_textures(SpritesheetTextures* out);

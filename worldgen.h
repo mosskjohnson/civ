@@ -1,6 +1,7 @@
 #ifndef WORLDGEN_H
 #define WORLDGEN_H
 
+#include <stdbool.h>
 #include "data.h"
 
 #define ELEVATION_LEVELS 3
@@ -16,7 +17,8 @@ typedef struct {
     float moisture;
     float temperature;
     int river_source;
-    int river; //bool
+    bool river;
+    bool natural_resource;
     TileType final_tile_type;
 } GenCell;
 
@@ -39,6 +41,7 @@ typedef struct {
     float temperature_cutoffs[2];
     float moisture_cutoffs[2];
     float randomness;
+    float resource_frequency;
 } GenParameters;
 
 GenParameters default_gen_parameters_medium(void);

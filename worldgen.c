@@ -46,6 +46,7 @@ GenParameters default_gen_parameters_medium(void) {
         .temperature_cutoffs = {0.3, 0.7},
         .moisture_cutoffs = {0.35, 0.7},
         .randomness = 0.2,
+        .resource_frequency = 0.035,
     };
 }
 
@@ -69,6 +70,7 @@ GenParameters default_gen_parameters_large(void) {
         .temperature_cutoffs = {0.3, 0.7},
         .moisture_cutoffs = {0.3, 0.6},
         .randomness = 0.2,
+        .resource_frequency = 0.035,
     };
 }
 
@@ -336,19 +338,7 @@ void generate_world(GenCell* out, GenParameters p) {
             ref->temperature = 0.0;
         }
     }
-    // DEBUG: make sure moisture and temperature are between 0 and 1.0
-    // float m_max = 0;
-    // float t_max = 0;
-    // for (int x = 0; x < p.size.width; ++x) {
-        // for (int y = 0; y < p.size.height; ++y) {
-            // GenCell* ref = out + y*p.size.width + x;
-            // float m = ref->moisture;
-            // float t = ref->temperature;
-            // if (m > m_max) m_max = m;
-            // if (t > t_max) t_max = t;
-        // }
-    // }
-    // printf("m_max: %f, t_max: %f\n", m_max, t_max);
+
     // determine final tile types
     for (int i = 0; i < p.size.width*p.size.height; ++i) {
         GenCell* ref = out + i;
@@ -406,13 +396,24 @@ void generate_world(GenCell* out, GenParameters p) {
         }
         ref->final_tile_type = type;
     }
+
+    // spawn natural resources
+    for (int i = 0; i < p.size.width*p.size.height; ++i) {
+        float freq = p.resource_frequency;
+        if (out[i].final_tile_type == T_GRASSLAND) freq *= 2.0;
+        if (out[i].final_tile_type == T_OCEAN) freq /= 2.0;
+        
+        if (FRAND() < freq) out[i].natural_resource = 1;
+    }
 }
 
 void to_tiles(GenCell* in, Tile* tiles_out, MapSize size) {
     for (int x = 0; x < size.width; ++x) {
         for (int y = 0; y < size.height; ++y) {
             GenCell* cell = in + y*size.width + x;
-            tile_at(tiles_out, size, x, y)->type = cell->final_tile_type;
+            Tile* t = tile_at(tiles_out, size, x, y);
+            t->type = cell->final_tile_type;
+            t->natural_resource = cell->natural_resource;
         }
     }
 }
