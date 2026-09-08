@@ -20,7 +20,9 @@
 #include "camera.h"
 
 #define PORT 8080
-#define SERVER_IP "10.0.0.98"
+// #define SERVER_IP "10.0.0.98"
+// #define SERVER_IP "192.168.0.109"
+#define SERVER_IP "169.231.118.201"
 
 #define WINDOW_W 960
 #define WINDOW_H 720
@@ -30,11 +32,6 @@
 #define FOG_SHADER_ON 0
 
 enum Mode {LOBBY, PLAYING, END};
-
-typedef struct {
-    float vis_x;
-    float vis_y;
-} EntityVisual; // should be used for rendering to allow animations
 
 typedef struct {
     Font font;
@@ -62,14 +59,17 @@ typedef struct {
     int window_w;
     int window_h;
 
-    struct sockaddr_in server_addr; // initialized by networking
+    // initialized by networking
+    struct sockaddr_in server_addr;
     struct pollfd poll_fd[1];
 
-    playerID my_player_id; // initialized by lobby
+    // initialized by lobby
+    playerID my_player_id;
     int num_players_now;
     int max_players;
     
-    MapSize size; // initialized by init
+    // initialized by init
+    MapSize size; 
     Entity* entities;
     EntityID active_unit;
     Tile* tiles;
@@ -89,6 +89,7 @@ typedef struct {
 static const int direction_keys[8] = {KEY_W, KEY_E, KEY_D, KEY_C, KEY_X, KEY_Z, KEY_A, KEY_Q};
 
 static void handle_networking(ClientState* state) {
+    printf("got here\n");
     int sock_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (sock_fd < 0) {
         perror("CLIENT: Socket failed");
@@ -217,7 +218,7 @@ static void handle_incoming_messages(ClientState* state, TextureManager* tm) {
                 tm->canvas_w = state->size.width * TILE_W;
                 tm->canvas_h = state->size.height * TILE_H;
                 
-                state->got_size = 1;
+                state->got_size = true;
                 break;
             }
             case SM_TILES: {
@@ -233,7 +234,7 @@ static void handle_incoming_messages(ClientState* state, TextureManager* tm) {
                 memcpy(state->tiles, tiles_update, state->size.width*state->size.height*sizeof(Tile));
                 free(tiles_update);
                 
-                state->got_tiles = 1;
+                state->got_tiles = true;
                 break;
             }
             case SM_ENTITIES: {
@@ -247,7 +248,7 @@ static void handle_incoming_messages(ClientState* state, TextureManager* tm) {
                 if (!state->got_entities)
                     for (EntityID i = 0; i < MAX_ENTITIES; ++i)
                         if (state->entities[i].entity_type != E_NIL) printf("e: %d\n", i);
-                state->got_entities = 1;
+                state->got_entities = true;
                 break;
             }
             case SM_FOG: {
@@ -263,7 +264,7 @@ static void handle_incoming_messages(ClientState* state, TextureManager* tm) {
                 memcpy(state->fog, fog_update, state->size.width*state->size.height*sizeof(Fog));
                 free(fog_update);
                 
-                state->got_fog = 1;
+                state->got_fog = true;
                 break;
             }
             case SM_COLORS: {

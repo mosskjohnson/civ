@@ -89,7 +89,7 @@ void generate_world(GenCell* out, GenParameters p) {
     int iter_range = area * (-p.fragmentation+1);
     
     int bound_x_left   = p.margin_x;
-    int bound_x_right  = p.size.width-p.margin_x;
+    int bound_x_right  = p.size.width - p.margin_x;
     int bound_y_top    = p.margin_y;
     int bound_y_bottom = p.size.height - p.margin_y;
 
@@ -158,6 +158,7 @@ void generate_world(GenCell* out, GenParameters p) {
             ref->elevation_norm = ((float)(ref->elevation) / e_max);
         }
     }
+
     // water cycle
     
     Direction8 dispersal_direction = direction8_opposite(p.wind_direction);
@@ -212,6 +213,7 @@ void generate_world(GenCell* out, GenParameters p) {
             }
         }
     }
+
     // temperature
     for (int x = 0; x < p.size.width; ++x) {
         for (int y = 0; y < p.size.height; ++y) {
@@ -226,6 +228,7 @@ void generate_world(GenCell* out, GenParameters p) {
             ref->temperature = temperature;
         }
     }
+
     // rivers
     int desired_river_area = total_land_area*p.desired_river_proportion;
     int river_area = 0;
@@ -322,6 +325,7 @@ void generate_world(GenCell* out, GenParameters p) {
         }
     }
     free(river_cands);
+    
     // poles
     int ys[4] = {0, 1, p.size.height-1, p.size.height-2};
     for (int i = 0; i < 4; ++i) {
