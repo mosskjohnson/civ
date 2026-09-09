@@ -3,12 +3,13 @@
 #include <assert.h>
 
 #include "raylib.h"
-#define RAYGUI_IMPLEMENTATION
-#include "raygui.h"
+// #define RAYGUI_IMPLEMENTATION
+// #include "raygui.h"
 
 #include "worldgen.h"
 #include "data.h"
 #include "resources.h"
+#include "utils.h"
 
 #define WINDOW_W 960
 #define WINDOW_H 720
@@ -19,97 +20,36 @@
 #define CANVAS_W (WORLD_W * TILE_W)
 #define CANVAS_H (WORLD_H * TILE_H)
 
-enum Mode {
-    TILETYPE,
-    ELEVATION,
-    MOISTURE,
-    TEMPERATURE,
-    RIVERS,
-    COUNT,
-};
-enum Mode mode = TILETYPE;
-const char* const mode_names[COUNT] = {"TileType", "Elevation", "Moisture", "Temperature", "Rivers"};
-const int mode_keys[COUNT] = {49, 50, 51, 52, 53};
-RenderTexture2D mode_canvases[COUNT];
+typedef enum {
+    M_TILETYPE,
+    M_ELEVATION,
+    M_MOISTURE,
+    M_TEMPERATURE,
+    M_COUNT,
+} Mode;
+Mode mode = M_TILETYPE;
+const char* const mode_names[M_COUNT] = {"TileType", "Elevation", "Moisture", "Temperature"};
+const int mode_keys[M_COUNT] = {49, 50, 51, 52};
+RenderTexture2D mode_canvases[M_COUNT];
 
-void draw_tiletype(GenCell* world, MapSize size, SpritesheetTextures* stextures) {
-    Tile* tiles = alloc_tiles(size);
-    to_tiles(world, tiles, size);
-    
-    for (int x = 0; x < size.width; ++x) {
-        for (int y = 0; y < size.height; ++y) {
-            draw_tile(tiles, size, tile_at(tiles, size, x, y), x, y, stextures);
+Image encodeWorld(GenCell* world, MapSize size) {
+    Image out = GenImageColor(size.width, size.height, BLANK);
+    Color* pixels = (Color*)out.data;
+
+    for (int y = 0; y < size.height; ++y) {
+        for (int x = 0; x < size.width; ++x) {
+            int i = y*size.width + x;
+            GenCell* gc = &world[i];
+            pixels[i] = (Color){
+                (unsigned char)(CLAMP(gc->elevation_norm, 0, 1) * 255),
+                (unsigned char)(CLAMP(gc->moisture, 0, 1) * 255),
+                (unsigned char)(CLAMP(gc->temperature, 0, 1) * 255),
+                (unsigned char)gc->final_tile_type,
+            };
         }
     }
 
-    free_tiles(tiles);
-}
-
-void draw_elevation(GenCell* world, MapSize size, SpritesheetTextures* stextures) {
-    for (int x = 0; x < size.width; ++x) {
-        for (int y = 0; y < size.height; ++y) {
-            GenCell* ref = world + WORLD_W*y + x;
-
-            int e = ref->elevation;
-            float e_norm = ref->elevation_norm;
-            Color c = ((e==0) ? DARKBLUE : ColorFromNormalized((Vector4){e_norm, e_norm, e_norm, 1.0}));
-
-            DrawRectangle(x*TILE_W, y*TILE_H, TILE_W, TILE_H, c);
-        }
-    }
-}
-
-void draw_moisture(GenCell* world, MapSize size, SpritesheetTextures* stextures) {
-    for (int x = 0; x < size.width; ++x) {
-        for (int y = 0; y < size.height; ++y) {
-            GenCell* ref = world + WORLD_W*y + x;
-
-            float m = ref->moisture;
-            Color c = ColorFromNormalized((Vector4){m, m, m, 1.0});
-
-            DrawRectangle(x*TILE_W, y*TILE_H, TILE_W, TILE_H, c);
-        }
-    }
-}
-
-void draw_temperature(GenCell* world, MapSize size, SpritesheetTextures* stextures) {
-    for (int x = 0; x < size.width; ++x) {
-        for (int y = 0; y < size.height; ++y) {
-            GenCell* ref = world + WORLD_W*y + x;
-
-            float t = ref->temperature;
-            int e = ref->elevation;
-            Color c = ((e==0) ? BLACK : ColorFromNormalized((Vector4){t, 0.0, (-t+1), 1.0}));
-
-            DrawRectangle(x*TILE_W, y*TILE_H, TILE_W, TILE_H, c);
-        }
-    }
-}
-
-void draw_rivers(GenCell* world, MapSize size, SpritesheetTextures* stextures) {
-    for (int x = 0; x < size.width; ++x) {
-        for (int y = 0; y < size.height; ++y) {
-            GenCell* ref = world + WORLD_W*y + x;
-
-            Color c;
-            if (ref->elevation==0) c = BLACK;
-            else if (ref->river_source) c = BLUE;
-            else if (ref->river) c = GREEN;
-            else c = WHITE;
-
-            DrawRectangle(x*TILE_W, y*TILE_H, TILE_W, TILE_H, c);
-        }
-    }
-}
-
-void (*mode_draw_functions[COUNT])(GenCell*, MapSize, SpritesheetTextures*) = {draw_tiletype, draw_elevation, draw_moisture, draw_temperature, draw_rivers};
-
-void draw_all_modes(GenCell* world, MapSize size, SpritesheetTextures* stextures) {
-    for (int i = 0; i < COUNT; ++i) {
-        BeginTextureMode(mode_canvases[i]);
-        mode_draw_functions[i](world, size, stextures);
-        EndTextureMode();
-    }
+    return out;
 }
 
 char* shift(int* argc, char*** argv) {
@@ -133,50 +73,87 @@ int main(int argc, char** argv) {
     }
     printf("seed: %d\n", seed);
 
+    MapSize size = (MapSize){WORLD_W, WORLD_H};
+
     GenParameters p = default_gen_parameters_medium();
-    p.size = (MapSize){WORLD_W, WORLD_H};
     p.seed = seed;
+    p.size = size;
 
     GenCell* world = alloc_world(p);
 
     generate_world(world, p);
+
+    Tile* tiles = alloc_tiles(size);
+
+    to_tiles(world, tiles, size);
 
     InitWindow(WINDOW_W, WINDOW_H, "worldgen");
 
     SpritesheetTextures stextures;
     load_textures(&stextures);
 
-    for (int i = 0; i < COUNT; ++i) {
+    Image encodedImage = encodeWorld(world, size);
+    Texture2D encodedTexture = LoadTextureFromImage(encodedImage);
+    SetTextureFilter(encodedTexture, TEXTURE_FILTER_POINT);
+    SetTextureWrap(encodedTexture, TEXTURE_WRAP_CLAMP);
+
+    Shader gradient_shader = LoadShader(0, "resources/shaders/worldgendisplayer/gradient.fs");
+    int gradient_shader_channel_loc = GetShaderLocation(gradient_shader, "channel");
+
+    // init canvases
+    for (int i = 0; i < M_COUNT; ++i) {
         mode_canvases[i] = LoadRenderTexture(CANVAS_W, CANVAS_H);
     }
 
-    draw_all_modes(world, p.size, &stextures);
+    // draw on canvases. this is seperate from init because later this may be done again during the game loop.
+    for (int i = 0; i < M_COUNT; ++i) {
+        BeginTextureMode(mode_canvases[i]);
+            if (i == M_TILETYPE) {
+                for (int y = 0; y < size.height; y++) {
+                    for (int x = 0; x < size.width; x++) {
+                        Tile *t = &tiles[y * size.width + x];
+                        draw_tile(tiles, size, t, x, y, &stextures);
+                    }
+                }
+            } else {
+                int channel = i - M_ELEVATION; // M_ELEVATION=0, M_MOISTURE=1, M_TEMPERATURE=2
+                SetShaderValue(gradient_shader, gradient_shader_channel_loc, &channel, SHADER_UNIFORM_INT);
+
+                BeginShaderMode(gradient_shader);
+                    DrawTexturePro(encodedTexture,
+                        (Rectangle){0, 0, size.width, size.height},
+                        (Rectangle){0, 0, CANVAS_W, CANVAS_H},
+                        (Vector2){0, 0}, 0.0f, WHITE);
+                EndShaderMode();
+            }
+        EndTextureMode();
+    }
     
     SetTargetFPS(30);
     while (!WindowShouldClose()) {
 
-        for (int i = 0; i < COUNT; ++i) {
+        for (int i = 0; i < M_COUNT; ++i) {
             if (IsKeyPressed(mode_keys[i])) mode = i;
         }
 
-        RenderTexture2D canvas = mode_canvases[mode];
-    
         BeginDrawing();
             ClearBackground(WHITE);
             DrawTexturePro(
-                canvas.texture,
+                mode_canvases[mode].texture,
                 (Rectangle){0, 0, CANVAS_W, -CANVAS_H},
                 (Rectangle){0, 0, WINDOW_W, WINDOW_H},
                 (Vector2){0, 0}, 0.0f, WHITE
             );
             DrawText(mode_names[mode], 10, 10, 20, RED);
+            DrawText("Legend: BLACK=LOW"
+                  "\n        WHITE=HIGH", 10, 10, 20, RED);
         EndDrawing();
-        
+
     }
 
+    free_world(world);
+    free_tiles(tiles);
+    unload_textures(&stextures);
     CloseWindow();
 
-    free_world(world);
-
-    unload_textures(&stextures);
 }

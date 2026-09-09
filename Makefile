@@ -24,13 +24,13 @@ BIN_DIR := bin
 
 all: server client worldgendisplayer
 
-server: $(BUILD_DIR)/server.o $(BUILD_DIR)/data.o $(BUILD_DIR)/worldgen.o $(BUILD_DIR)/message.o
+server: $(BUILD_DIR)/server.o $(BUILD_DIR)/data.o $(BUILD_DIR)/worldgen.o $(BUILD_DIR)/message.o $(BUILD_DIR)/utils.o
 	$(CC) $^ $(LDFLAGS) -o $(BIN_DIR)/$@
 
-client: $(BUILD_DIR)/client.o $(BUILD_DIR)/data.o $(BUILD_DIR)/resources.o $(BUILD_DIR)/message.o $(BUILD_DIR)/camera.o
+client: $(BUILD_DIR)/client.o $(BUILD_DIR)/data.o $(BUILD_DIR)/resources.o $(BUILD_DIR)/message.o $(BUILD_DIR)/camera.o $(BUILD_DIR)/utils.o
 	$(CC) $^ $(LDFLAGS) -o $(BIN_DIR)/$@
 
-worldgendisplayer: $(BUILD_DIR)/worldgendisplayer.o $(BUILD_DIR)/worldgen.o $(BUILD_DIR)/data.o $(BUILD_DIR)/resources.o
+worldgendisplayer: $(BUILD_DIR)/worldgendisplayer.o $(BUILD_DIR)/worldgen.o $(BUILD_DIR)/data.o $(BUILD_DIR)/resources.o $(BUILD_DIR)/utils.o
 	$(CC) $^ $(LDFLAGS) -o $(BIN_DIR)/$@
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c

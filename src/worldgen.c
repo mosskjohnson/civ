@@ -10,12 +10,12 @@
 
 TileType biome_matrix[ELEVATION_LEVELS][TEMPERATURE_LEVELS][MOISTURE_LEVELS] = {
     { // elevation 0
-        {T_TUNDRA,T_TUNDRA,T_ARCTIC}, // temperature 0
+        {T_ARCTIC,T_ARCTIC,T_ARCTIC}, // temperature 0
         {T_PLAINS,T_GRASSLAND,T_SWAMP}, // temperature 1
         {T_DESERT,T_GRASSLAND,T_JUNGLE}, // temperature 2
     },
     { // elevation 1
-        {T_TUNDRA,T_TUNDRA,T_ARCTIC}, // temperature 0
+        {T_TUNDRA,T_TUNDRA,T_TUNDRA}, // temperature 0
         {T_HILLS,T_FOREST,T_FOREST}, // temperature 1
         {T_HILLS,T_FOREST,T_JUNGLE}, // temperature 2
     },
@@ -82,8 +82,8 @@ void free_world(GenCell* world) {
     free(world);
 }
 
-void generate_world(GenCell* out, GenParameters p) {
-    srand(p.seed);
+// returns the total land area generated
+int simulate_elevation(GenCell* out, GenParameters p) {
 
     int area = p.size.width*p.size.height;
     int iter_range = area * (-p.fragmentation+1);
@@ -95,7 +95,6 @@ void generate_world(GenCell* out, GenParameters p) {
 
     int total_land_area = 0;
 
-    // elevation
     #define REGION_COUNT 2
     #define CHANNEL_W 4
     int region_bounds[REGION_COUNT][4] = {
@@ -143,6 +142,18 @@ void generate_world(GenCell* out, GenParameters p) {
             else if (ref->elevation >= 10) ref->elevation -= rand()%5;
         }
     }
+    // poles (hard set at elevation 1)
+    int ys[4] = {0, 1, p.size.height-1, p.size.height-2};
+    for (int i = 0; i < 4; ++i) {
+        int y = ys[i];
+        for (int x = 0; x < p.size.width; ++x) {
+            if (i%2==1) {
+                if (FRAND() < 0.4) continue;
+            }
+            GenCell* ref = out + y*p.size.width + x;
+            ref->elevation = 1;
+        }
+    }
     // elevation normalization
     int e_max = 0;
     for (int x = 0; x < p.size.width; ++x) {
@@ -159,8 +170,10 @@ void generate_world(GenCell* out, GenParameters p) {
         }
     }
 
-    // water cycle
-    
+    return total_land_area;
+}
+
+void simulate_moisture(GenCell* out, GenParameters p) {
     Direction8 dispersal_direction = direction8_opposite(p.wind_direction);
     
     for (int i = 0; i < p.water_cycles; ++i) {
@@ -213,8 +226,9 @@ void generate_world(GenCell* out, GenParameters p) {
             }
         }
     }
+}
 
-    // temperature
+void simulate_temperature(GenCell* out, GenParameters p) {
     for (int x = 0; x < p.size.width; ++x) {
         for (int y = 0; y < p.size.height; ++y) {
             GenCell* ref = out + (y)*p.size.width + (x);
@@ -228,8 +242,9 @@ void generate_world(GenCell* out, GenParameters p) {
             ref->temperature = temperature;
         }
     }
+}
 
-    // rivers
+void simulate_rivers(GenCell* out, GenParameters p, int total_land_area) {
     int desired_river_area = total_land_area*p.desired_river_proportion;
     int river_area = 0;
     typedef struct {
@@ -237,7 +252,7 @@ void generate_world(GenCell* out, GenParameters p) {
         int y;
         float fitness;
     } RiverCand;
-    RiverCand* river_cands = malloc(area*sizeof(RiverCand));
+    RiverCand* river_cands = malloc(p.size.width*p.size.height*sizeof(RiverCand));
     int river_cands_count = 0;
     for (int x = 0; x < p.size.width; ++x) {
         for (int y = 0; y < p.size.height; ++y) {
@@ -325,25 +340,9 @@ void generate_world(GenCell* out, GenParameters p) {
         }
     }
     free(river_cands);
-    
-    // poles
-    int ys[4] = {0, 1, p.size.height-1, p.size.height-2};
-    for (int i = 0; i < 4; ++i) {
-        int y = ys[i];
-        for (int x = 0; x < p.size.width; ++x) {
-            if (i%2==1) {
-                if (FRAND() < 0.4) continue;
-            }
-            GenCell* ref = out + y*p.size.width + x;
-            ref->elevation = 1;
-            ref->elevation_norm = 1.0 / e_max;
-            ref->clouds = 0.0;
-            ref->moisture = 1.0;
-            ref->temperature = 0.0;
-        }
-    }
+}
 
-    // determine final tile types
+void simulate_tiletypes(GenCell* out, GenParameters p) {
     for (int i = 0; i < p.size.width*p.size.height; ++i) {
         GenCell* ref = out + i;
         TileType type = T_NIL;
@@ -367,7 +366,7 @@ void generate_world(GenCell* out, GenParameters p) {
             
             type = biome_matrix[elevation_level][temperature_level][moisture_level];
         }
-        // final randomization
+        // randomization
         if (FRAND() < p.randomness) {
             switch (type) {
                 case T_NIL: break;
@@ -400,8 +399,9 @@ void generate_world(GenCell* out, GenParameters p) {
         }
         ref->final_tile_type = type;
     }
+}
 
-    // spawn natural resources
+void simulate_natural_resources(GenCell* out, GenParameters p) {
     for (int i = 0; i < p.size.width*p.size.height; ++i) {
         float freq = p.resource_frequency;
         if (out[i].final_tile_type == T_GRASSLAND) freq *= 2.0;
@@ -409,6 +409,22 @@ void generate_world(GenCell* out, GenParameters p) {
         
         if (FRAND() < freq) out[i].natural_resource = 1;
     }
+}
+
+void generate_world(GenCell* out, GenParameters p) {
+    srand(p.seed);
+
+    int total_land_area = simulate_elevation(out, p);
+
+    simulate_moisture(out, p);
+
+    simulate_temperature(out, p);
+
+    simulate_rivers(out, p, total_land_area);
+
+    simulate_tiletypes(out, p);
+
+    simulate_natural_resources(out, p);
 }
 
 void to_tiles(GenCell* in, Tile* tiles_out, MapSize size) {

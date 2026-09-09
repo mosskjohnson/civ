@@ -22,7 +22,7 @@
 #define PORT 8080
 // #define SERVER_IP "10.0.0.98"
 // #define SERVER_IP "192.168.0.109"
-#define SERVER_IP "169.231.118.201"
+#define SERVER_IP "169.231.116.248"
 
 #define WINDOW_W 960
 #define WINDOW_H 720
