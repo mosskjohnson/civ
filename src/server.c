@@ -15,7 +15,7 @@
 #include "worldgen.h"
 #include "message.h"
 
-#define PORT 8080
+#define DEFAULT_PORT 8080
 #define MAX_PLAYERS 8
 #define MAP_W 80
 #define MAP_H 50
@@ -25,6 +25,8 @@
 typedef int playerID;
 
 typedef struct {
+    int port;
+
     MapSize size; // initialized by user
     GenParameters p; // initialized by user via argv
     float seconds_per_turn_base;
@@ -71,7 +73,7 @@ static void handle_networking(ServerState* state) {
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = INADDR_ANY;
-    addr.sin_port = htons(PORT);
+    addr.sin_port = htons(state->port);
 
     int reuse = 1;
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
@@ -84,7 +86,7 @@ static void handle_networking(ServerState* state) {
         perror("SERVER: Listen failed");
         exit(EXIT_FAILURE);
     }
-    printf("SERVER: Listening on port %d\n", PORT);
+    printf("SERVER: Listening on port %d\n", state->port);
 
     state->local_fds[0].fd = server_fd;
     state->local_fds[0].events = POLLIN;
@@ -440,10 +442,28 @@ static void handle_playing(ServerState* state) {
     }
 }
 
-int main(void) {
+char* shift(int* argc, char*** argv) {
+    if (*argc > 0) {
+        (*argc)--;
+        return *(*argv)++;
+    }
+    return NULL;
+}
+
+int main(int argc, char** argv) {
     srand(time(NULL));
-    // read parameters
-    // TODO: for now, this is hard coded, later it will be based on argv
+    
+    char* _prog_name = shift(&argc, &argv);
+    (void)_prog_name;
+    char* port_str = shift(&argc, &argv);
+
+    int port;
+    if (port_str != NULL) {
+        port = atoi(port_str);
+    } else {
+        port = DEFAULT_PORT;
+    }
+
     MapSize size = {MAP_W, MAP_H};
     GenParameters p = default_gen_parameters_medium();
     p.size = size;
@@ -451,6 +471,7 @@ int main(void) {
     p.seed = time(NULL);
 
     ServerState state = {0};
+    state.port = port;
     state.p = p;
     state.size = size;
     state.seconds_per_turn_base = 4;

@@ -63,6 +63,7 @@ char* shift(int* argc, char*** argv) {
 int main(int argc, char** argv) {
     
     char* _prog_name = shift(&argc, &argv);
+    (void)_prog_name;
     char* seed_str = shift(&argc, &argv);
 
     unsigned int seed;
@@ -144,9 +145,8 @@ int main(int argc, char** argv) {
                 (Rectangle){0, 0, WINDOW_W, WINDOW_H},
                 (Vector2){0, 0}, 0.0f, WHITE
             );
-            DrawText(mode_names[mode], 10, 10, 20, RED);
-            DrawText("Legend: BLACK=LOW"
-                  "\n        WHITE=HIGH", 10, 10, 20, RED);
+            draw_text(GetFontDefault(), 20, 4, 0, 0, FA_START, FA_START, RED, "Displaying: %s", mode_names[mode]);
+            draw_text(GetFontDefault(), 20, 4, WINDOW_W, 0, FA_END, FA_START, RED, "Legend: Black=Low White=High");
         EndDrawing();
 
     }

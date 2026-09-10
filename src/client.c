@@ -19,17 +19,14 @@
 #include "utils.h"
 #include "camera.h"
 
-#define PORT 8080
-// #define SERVER_IP "10.0.0.98"
-// #define SERVER_IP "192.168.0.109"
-#define SERVER_IP "169.231.116.248"
+#define DEFAULT_SERVER_PORT 8080
 
 #define WINDOW_W 960
 #define WINDOW_H 720
 #define MINIMAP_W_SCALE 6.0
 #define MINIMAP_H_SCALE 6.0
 #define MAX_KEYBOARD_KEYS 512
-#define FOG_SHADER_ON 0
+#define FOG_SHADER_ON 1
 
 enum Mode {LOBBY, PLAYING, END};
 
@@ -55,6 +52,9 @@ typedef struct {
 } TextureManager;
 
 typedef struct {
+    char* server_ip;
+    int server_port;
+
     enum Mode mode;
     int window_w;
     int window_h;
@@ -98,14 +98,14 @@ static void handle_networking(ClientState* state) {
 
     struct sockaddr_in server_addr;
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(PORT);
-    inet_pton(AF_INET, SERVER_IP, &server_addr.sin_addr);
+    server_addr.sin_port = htons(state->server_port);
+    inet_pton(AF_INET, state->server_ip, &server_addr.sin_addr);
 
     if (connect(sock_fd, (struct sockaddr *)&server_addr, (socklen_t)sizeof(server_addr)) < 0) {
         perror("CLIENT: Connection failed");
         exit(EXIT_FAILURE);
     }
-    printf("CLIENT: Connected to server %s:%d\n", SERVER_IP, PORT);
+    printf("CLIENT: Connected to server %s:%d\n", state->server_ip, state->server_port);
 
     //int flags = fcntl(sock_fd, F_GETFL, 0);
     //fcntl(sock_fd, F_SETFL, flags | O_NONBLOCK);
@@ -468,8 +468,31 @@ static void handle_playing(ClientState* state, TextureManager* tm) {
     EndDrawing();
 }
 
-int main(void) {
+char* shift(int* argc, char*** argv) {
+    if (*argc > 0) {
+        (*argc)--;
+        return *(*argv)++;
+    }
+    return NULL;
+}
+
+int main(int argc, char** argv) {
+
+    char* _prog_name = shift(&argc, &argv);
+    (void)_prog_name;
+    char* server_ip = shift(&argc, &argv);
+    char* server_port_str = shift(&argc, &argv);
+    
+    int server_port;
+    if (server_port_str != NULL) {
+        server_port = atoi(server_port_str);
+    } else {
+        server_port = DEFAULT_SERVER_PORT;
+    }
+
     ClientState state = {0};
+    state.server_ip = server_ip;
+    state.server_port = server_port;
     state.mode = LOBBY;
     state.window_w = WINDOW_W;
     state.window_h = WINDOW_H;
