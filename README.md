@@ -1,6 +1,6 @@
-# Civ
+# civ-mp
 
-An open-source rewrite of Sid Meier's Civilization 1, written in C with the Raylib library.
+An open-source multiplayer rewrite of Sid Meier's Civilization 1, written in C with the Raylib library.
 
 Currently in active development.
 
